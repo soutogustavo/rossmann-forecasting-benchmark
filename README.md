@@ -8,13 +8,12 @@ As the initial stage of this project, I am implementing Facebook Prophet as our 
 
 - Ease of Interpretability: It allows us to clearly decompose trends and seasonal effects (weekly, yearly).
 - Handling Holidays: The model inherently supports holiday effects, which is crucial for Rossmann's promotional calendar.
-- Robustness to Missing Data: It deals well with outliers and shifts in trends caused by events like store refurbishments or new competitors.
 
 ## Success Metrics
-To evaluate the model's performance, we are primarily using **sMAPE (symmetric Mean Absolute Percentage Error)**, as it provides a balanced perspective on both over and under-forecasting errors across different store scales.
+To evaluate the model's performance, we will be using **sMAPE (symmetric Mean Absolute Percentage Error)**, as it provides a balanced perspective on both over and under-forecasting errors across different store scales.
 
 ## Roadmap
-[] Data Cleaning and EDA.
+[x] Data Cleaning and EDA.
 
 [ ] Baseline implementation (Prophet).
 
