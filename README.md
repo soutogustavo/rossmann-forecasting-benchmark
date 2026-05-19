@@ -12,6 +12,15 @@ As the initial stage of this project, I am implementing Facebook Prophet as our 
 ## Success Metrics
 To evaluate the model's performance, we will be using **sMAPE (symmetric Mean Absolute Percentage Error)**, as it provides a balanced perspective on both over and under-forecasting errors across different store scales.
 
+## Tracking experiments
+MLflow is used to track the experiments and hyperparameters of the models.
+
+The figure below shows the latest results of building models for different groups of Rossmann Stores.
+
+<img width="1269" height="502" alt="Image" src="https://github.com/user-attachments/assets/3d16a4ed-bf3c-4ce7-90c5-0e7c66fbffd0" />
+
+
+
 ## Roadmap
 [x] Data Cleaning and EDA.
 
