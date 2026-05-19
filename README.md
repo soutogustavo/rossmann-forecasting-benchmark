@@ -15,7 +15,7 @@ To evaluate the model's performance, we will be using **sMAPE (symmetric Mean Ab
 ## Roadmap
 [x] Data Cleaning and EDA.
 
-[ ] Baseline implementation (Prophet).
+[x] Baseline implementation (Prophet).
 
 [ ] Hyperparameter tuning via MLflow.
 
