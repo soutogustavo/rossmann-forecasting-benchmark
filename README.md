@@ -1,3 +1,5 @@
+![Status](https://img.shields.io/badge/status-in%20development-yellow)
+
 # Project Overview: Rossmann Sales Forecasting
 This project aims to build a robust predictive pipeline for Rossmann, one of Europe’s largest drugstore chains. The core challenge is to forecast daily sales for over 1,100 stores across Germany, considering factors like promotions, competition, school holidays, and seasonality.
 
