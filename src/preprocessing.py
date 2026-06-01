@@ -108,3 +108,143 @@ def split_cluster_data(train_size: float, agg_x: pd.DataFrame, margin: float = 1
     agg_x_test['cap'] = agg_x_test["DayOfWeek"].map(cap_by_day)
 
     return (agg_x_train, agg_x_test, cap_by_day)
+
+
+def create_lags_features_rossmann(
+    data: pd.DataFrame, target_feature: str,
+    num_lags:int=3, id_feature:str="Store"
+):
+    """Generate lags features for the Rossmann dataset give a target feature
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        target_feature (str): Name of the target feature.
+        num_lags (int): Number of lags to generate.
+        id_feature (str): Name of the id feature.
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+
+    df = data.copy()
+
+    for lag in range(1,num_lags+1):
+        df[f"{target_feature}_{lag}"] = df.groupby(id_feature)[target_feature].shift(lag)
+
+    df.reset_index(drop=True, inplace=True)
+
+    return df
+
+def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:str, window_size:int=3, id_feature:str="Store"):
+    """Create rolling stats (mean, sum, std) given a target feature
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        target_feature (str): Name of the target feature.
+        window_size (int): Window size for the rolling statistics.
+        id_feature (str): Name of the id feature.
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+
+    df = data.copy()
+
+    df[f"{target_feature}_mean"] = df.groupby(id_feature)[target_feature].rolling(window_size).mean().values
+    df[f"{target_feature}_sum"] = df.groupby(id_feature)[target_feature].rolling(window_size).sum().values
+    df[f"{target_feature}_std"] = df.groupby(id_feature)[target_feature].rolling(window_size).std().values
+
+    df.reset_index(drop=True, inplace=True)
+
+    return df
+
+def create_time_based_features_rossmann(data: pd.DataFrame, date_feature:str="Date"):
+    """Create time-based features given date feature
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        date_feature (str): Name of the date feature.
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+
+    df = data.copy()
+
+    df["day_of_week"] = df[date_feature].dt.day_name().values
+    df["month"] = df[date_feature].dt.month.values
+    df["month_name"] = df[date_feature].dt.month_name().values
+    df["week_year"] = df[date_feature].dt.isocalendar().week.values
+    df["quarter"] = df[date_feature].dt.quarter.values
+
+    df.reset_index(drop=True, inplace=True)
+
+    return df
+
+def create_ewm_features_rossmann(data: pd.DataFrame, target_feature:str, id_feature:str="Store", span:int=7):
+    """Create a exponentially weighted moving average features given target feature
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        target_feature (str): Name of the target feature.
+        id_feature (str): Name of the id feature.
+        span (int): Span for the exponentially weighted moving average.
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+
+    df = data.copy()
+
+    df["ewm_mean"] = df.groupby(id_feature)[target_feature].ewm(span=span).mean().values
+
+    return df
+
+def create_seasonal_indicator_features_rossmann(data: pd.DataFrame, date_feature:str="Date"):
+    """Create seasonal indicators given date feature
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        date_feature (str): Name of the date feature.
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+
+    df = data.copy()
+
+    df["is_weekend"] = df[date_feature].dt.dayofweek >= 5
+    df["is_month_start"] = df[date_feature].dt.day <= 5
+    df["is_month_end"] = df[date_feature].dt.day >= 26
+
+    return df
+
+def create_cyclical_time_features_rossmann(data: pd.DataFrame, cyclical_features:list):
+    """Create cyclical features with sine and cosine.
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        cyclical_features (list): List of features to use for cyclical encoding.
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+
+    df = data.copy()
+
+    dow_feature = "DayOfWeek"
+    if dow_feature in cyclical_features:
+        df[f"{dow_feature}_sin"] = np.sin(2 * np.pi * df[dow_feature] / 7)
+        df[f"{dow_feature}_cos"] = np.cos(2 * np.pi * df[dow_feature] / 7)
+
+    month_feature = "month"
+    if "month" in cyclical_features:
+        df[f"{month_feature}_sin"] = np.sin(2 * np.pi * df[month_feature] / 12)
+        df[f"{month_feature}_cos"] = np.cos(2 * np.pi * df[month_feature] / 12)
+
+    woy_feature = "week_year"
+    if "month" in cyclical_features:
+        df[f"{woy_feature}_sin"] = np.sin(2 * np.pi * df[woy_feature] / 52)
+        df[f"{woy_feature}_cos"] = np.cos(2 * np.pi * df[woy_feature] / 52)
+
+    return df
