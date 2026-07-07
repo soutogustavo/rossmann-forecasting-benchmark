@@ -112,7 +112,7 @@ def split_cluster_data(train_size: float, agg_x: pd.DataFrame, margin: float = 1
 
 def create_lags_features_rossmann(
     data: pd.DataFrame, target_feature: str,
-    num_lags:int=3, id_feature:str="Store"
+    num_lags:int=3, id_feature:str="Store", min_shift_lag:int=7
 ):
     """Generate lags features for the Rossmann dataset give a target feature
 
@@ -121,6 +121,7 @@ def create_lags_features_rossmann(
         target_feature (str): Name of the target feature.
         num_lags (int): Number of lags to generate.
         id_feature (str): Name of the id feature.
+        min_shift_lag (int): Minimum shift lag to generate.
 
     Returns:
         pd.DataFrame: DataFrame with the added features.
@@ -128,14 +129,17 @@ def create_lags_features_rossmann(
 
     df = data.copy()
 
-    for lag in range(1,num_lags+1):
+    # The minimum shift for any autoregressive feature was locked at $t-7$,
+    # aligning with a real-world weekly corporate planning cycle.
+    for lag in range(min_shift_lag, num_lags+min_shift_lag+1):
         df[f"{target_feature}_{lag}"] = df.groupby(id_feature)[target_feature].shift(lag)
 
     df.reset_index(drop=True, inplace=True)
 
     return df
 
-def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:str, window_size:int=3, id_feature:str="Store"):
+
+def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:str, window_size:int=3, id_feature:str="Store", min_shift_lag:int=7):
     """Create rolling stats (mean, sum, std) given a target feature
 
     Args:
@@ -143,6 +147,7 @@ def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:st
         target_feature (str): Name of the target feature.
         window_size (int): Window size for the rolling statistics.
         id_feature (str): Name of the id feature.
+        min_shift_lag (int): Minimum shift lag to generate.
 
     Returns:
         pd.DataFrame: DataFrame with the added features.
@@ -150,13 +155,20 @@ def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:st
 
     df = data.copy()
 
-    df[f"{target_feature}_mean"] = df.groupby(id_feature)[target_feature].rolling(window_size).mean().values
-    df[f"{target_feature}_sum"] = df.groupby(id_feature)[target_feature].rolling(window_size).sum().values
-    df[f"{target_feature}_std"] = df.groupby(id_feature)[target_feature].rolling(window_size).std().values
+    # Rolling statistics (Mean, Sum, Std) were computed exclusively over
+    # the shifted $t-7$ baseline, eliminating any look-ahead bias.
+    df[f"safe_{target_feature}"] = df.groupby(id_feature)[target_feature].shift(min_shift_lag)
+
+    df[f"{target_feature}_mean"] = df.groupby(id_feature)[f"safe_{target_feature}"].rolling(window_size).mean().values
+    df[f"{target_feature}_sum"] = df.groupby(id_feature)[f"safe_{target_feature}"].rolling(window_size).sum().values
+    df[f"{target_feature}_std"] = df.groupby(id_feature)[f"safe_{target_feature}"].rolling(window_size).std().values
+
+    df.drop(columns=[f"safe_{target_feature}"], inplace=True)
 
     df.reset_index(drop=True, inplace=True)
 
     return df
+
 
 def create_time_based_features_rossmann(data: pd.DataFrame, date_feature:str="Date"):
     """Create time-based features given date feature
@@ -181,6 +193,7 @@ def create_time_based_features_rossmann(data: pd.DataFrame, date_feature:str="Da
 
     return df
 
+
 def create_ewm_features_rossmann(data: pd.DataFrame, target_feature:str, id_feature:str="Store", span:int=7):
     """Create a exponentially weighted moving average features given target feature
 
@@ -200,6 +213,7 @@ def create_ewm_features_rossmann(data: pd.DataFrame, target_feature:str, id_feat
 
     return df
 
+
 def create_seasonal_indicator_features_rossmann(data: pd.DataFrame, date_feature:str="Date"):
     """Create seasonal indicators given date feature
 
@@ -218,6 +232,7 @@ def create_seasonal_indicator_features_rossmann(data: pd.DataFrame, date_feature
     df["is_month_end"] = df[date_feature].dt.day >= 26
 
     return df
+
 
 def create_cyclical_time_features_rossmann(data: pd.DataFrame, cyclical_features:list):
     """Create cyclical features with sine and cosine.
