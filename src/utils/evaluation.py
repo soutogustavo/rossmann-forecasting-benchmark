@@ -7,17 +7,43 @@ from prophet import Prophet
 from src.preprocessing import split_cluster_data
 
 
-def smape(y_true, y_pred):
-    """
-    Calculate Symmetric Mean Absolute Percentage Error (SMAPE).
-    """
+def smape(y_true, y_pred, eps=1e-8):
+        """
+        Calculate Symmetric Mean Absolute Percentage Error (SMAPE).
 
-    denominator = (np.abs(y_true) + np.abs(y_pred))
+        Args:
+            y_true (pd.Series): True values.
+            y_pred (pd.Series): Predicted values.
+            eps (float): Small constant to avoid division by zero.
 
-    with np.errstate(divide='ignore', invalid='ignore'):
-        smape_val = np.mean(2 * np.abs(y_pred - y_true) / denominator) * 100
+        Returns:
+            float: SMAPE value.
+        """
+        denom = (np.abs(y_true) + np.abs(y_pred)) / 2
 
-    return np.nan_to_num(smape_val)
+        return 100 * np.mean(np.abs(y_true - y_pred) / np.maximum(denom, eps))
+
+
+class RossmannEvaluation:
+    """Class for evaluation metrics on Rossmann Forecasting Benchmark"""
+
+    def __init__(self, masks_by_length=None):
+        self.masks_by_length = masks_by_length
+
+    def smape_adjusted(self, y_true, y_pred):
+        """Adjusted SMAPE by masking zeros
+
+        Args:
+            y_true (pd.Series): True values.
+            y_pred (pd.Series): Predicted values.
+
+        Returns:
+            float: SMAPE value.
+        """
+        mask = self.masks_by_length[len(y_true)]
+        pred_fixed = np.where(mask == 0, 0, y_pred)
+
+        return smape(y_true, pred_fixed)
 
 
 def evaluate_model_performance_on_stores(
