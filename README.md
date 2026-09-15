@@ -70,9 +70,9 @@ Moving from Prophet to XGBoost addressed the core limitation identified in Phase
 
 All experiments were tracked in MLflow, with sMAPE as the primary evaluation metric.
 
-**Current best result: 12.2% sMAPE**
+**Current best result: 8.649% sMAPE**
 
-<img width="1851" height="356" alt="Image" src="https://github.com/user-attachments/assets/e70df35d-73e1-4323-ad77-ce6b487a7b7c" />
+<img width="1851" height="356" alt="Image" src="https://github.com/user-attachments/assets/124fb800-b1f8-46bd-bef7-cd0f638ec081" />
 
 ## Success Metric
 
