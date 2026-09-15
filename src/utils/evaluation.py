@@ -8,20 +8,20 @@ from src.preprocessing import split_cluster_data
 
 
 def smape(y_true, y_pred, eps=1e-8):
-        """
-        Calculate Symmetric Mean Absolute Percentage Error (SMAPE).
+    """
+    Calculate Symmetric Mean Absolute Percentage Error (SMAPE).
 
-        Args:
-            y_true (pd.Series): True values.
-            y_pred (pd.Series): Predicted values.
-            eps (float): Small constant to avoid division by zero.
+    Args:
+        y_true (pd.Series): True values.
+        y_pred (pd.Series): Predicted values.
+        eps (float): Small constant to avoid division by zero.
 
-        Returns:
-            float: SMAPE value.
-        """
-        denom = (np.abs(y_true) + np.abs(y_pred)) / 2
+    Returns:
+        float: SMAPE value.
+    """
+    denom = (np.abs(y_true) + np.abs(y_pred)) / 2
 
-        return 100 * np.mean(np.abs(y_true - y_pred) / np.maximum(denom, eps))
+    return 100 * np.mean(np.abs(y_true - y_pred) / np.maximum(denom, eps))
 
 
 class RossmannEvaluation:
