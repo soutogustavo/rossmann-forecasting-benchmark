@@ -4,7 +4,7 @@ import pandas as pd
 from prophet import Prophet
 from sklearn.cluster import KMeans
 
-from src.preprocessing import (
+from src.utils.preprocessing import (
     create_store_profile,
     preprocess_store_profile_data,
 )

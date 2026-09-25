@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from prophet import Prophet
 
-from src.preprocessing import split_cluster_data
+from src.utils.preprocessing import split_cluster_data
 
 
 def smape(y_true, y_pred, eps=1e-8):
