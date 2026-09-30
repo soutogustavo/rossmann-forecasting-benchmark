@@ -11,6 +11,22 @@ from src.utils.feature_engineering import (
 )
 
 
+def merge_sales_and_store_data(
+    sales: pd.DataFrame, store: pd.DataFrame, id_feature:str="Store"):
+    """Merges the sales and store datasets.
+
+    Args:
+        sales (pd.DataFrame): DataFrame with the sales data.
+        store (pd.DataFrame): DataFrame with the store data.
+        id_feature (str): Name of the id feature to merge the datasets.
+
+    Returns:
+        pd.DataFrame: DataFrame with the merged data.
+    """
+
+    return sales.merge(store, on=id_feature)
+
+
 def preprocess_rossmann_data(df, max_competitor_distance: int = 200000):
     """Applies preprocessing to the Rossmann dataset.
 
@@ -22,38 +38,41 @@ def preprocess_rossmann_data(df, max_competitor_distance: int = 200000):
         pd.DataFrame: The dataset with added features.
     """
 
-    df["year"] = df["Date"].dt.year
-    df["month"] = df["Date"].dt.month
+    df.columns = df.columns.str.lower()
 
-    df["CompetitionDistance"] = df["CompetitionDistance"].fillna(
+    df["date"] = pd.to_datetime(df["date"])
+    df["year"] = df["date"].dt.year
+    df["month"] = df["date"].dt.month
+
+    df["competitiondistance"] = df["competitiondistance"].fillna(
         max_competitor_distance)
 
-    df["CompetitionOpenSinceMonth"] = df.apply(
-        lambda x: x["Date"].month
-        if np.isnan(x["CompetitionOpenSinceMonth"])
-        else x["CompetitionOpenSinceMonth"], axis=1
+    df["competitionopenmonth"] = df.apply(
+        lambda x: x["date"].month
+        if np.isnan(x["competitionopensincemonth"])
+        else x["competitionopensincemonth"], axis=1
     )
 
-    df["CompetitionOpenSinceYear"] = df.apply(
-        lambda x: x["Date"].year
-        if np.isnan(x["CompetitionOpenSinceYear"])
-        else x["CompetitionOpenSinceYear"], axis=1
+    df["competitionopenyear"] = df.apply(
+        lambda x: x["date"].year
+        if np.isnan(x["competitionopensinceyear"])
+        else x["competitionopensinceyear"], axis=1
     )
 
-    binary_features = ["Promo", "Promo2", "SchoolHoliday"]
+    binary_features = ["promo", "promo2", "schoolholiday"]
     df[binary_features] = df[binary_features].fillna(0)
 
-    df["Open"] = np.where(df["Open"].isna(), 0, df["Open"])
+    df["open"] = np.where(df["open"].isna(), 0, df["open"])
 
-    df["Store"] = df["Store"].astype("category")
+    df["store"] = df["store"].astype("category")
 
     # Check the difference between competitor and Rossmann store
     # Negative values mean Rossmann store opened a store before its the competitor
     df["days_to_competitor"] = (
-        df["Date"] -
-        pd.to_datetime(df["CompetitionOpenSinceYear"], format="%Y")).dt.days
+        df["date"] -
+        pd.to_datetime(df["competitionopensinceyear"], format="%Y")).dt.days
 
-    df.sort_values(["Store", "Date"], inplace=True)
+    df.sort_values(["store", "date"], inplace=True)
 
     return df
 
@@ -67,7 +86,9 @@ def preprocess_rossmann_store_data(data: pd.DataFrame):
     Returns:
         pd.DataFrame: The dataset with added features.
     """
-    data["Store"] = data["Store"].astype("category")
+
+    data.columns = data.columns.str.lower()
+    data["store"] = data["store"].astype("category")
 
     return data
 
@@ -138,8 +159,8 @@ def split_cluster_data(train_size: float, agg_x: pd.DataFrame, margin: float = 1
 def create_store_profile(
     data: pd.DataFrame,
     store_data: pd.DataFrame,
-    target_feature:str="Sales",
-    id_feature:str="Store"
+    target_feature:str="sales",
+    id_feature:str="store"
 ):
     """Create a store profile given a target feature
 
@@ -158,27 +179,27 @@ def create_store_profile(
 
     store_features = df.groupby(id_feature).agg({
         target_feature: "mean",
-        "Customers": "mean",
-        "CompetitionDistance": "mean"
+        "customers": "mean",
+        "competitiondistance": "mean"
     }).reset_index()
 
     store_features = store_features.merge(
-        df_store[[id_feature, "StoreType"]],
+        df_store[[id_feature, "storetype"]],
         on=id_feature
     )
 
     store_features.columns = [
         id_feature,
-        f"Avg{target_feature}",
-        "AvgCustomers",
-        "AvgCompetitionDistance",
-        "StoreType"
+        f"avg_{target_feature}",
+        "avg_customers",
+        "avg_competition_distance",
+        "storetype"
     ]
 
     return store_features
 
 
-def preprocess_store_profile_data(profile_data: pd.DataFrame, target_feature:str="Sales"):
+def preprocess_store_profile_data(profile_data: pd.DataFrame, target_feature:str="sales"):
     """Preprocess the store profile data.
 
     Args:
@@ -189,8 +210,8 @@ def preprocess_store_profile_data(profile_data: pd.DataFrame, target_feature:str
     """
     df = profile_data.copy()
 
-    num_features = [f"Avg{target_feature}", "AvgCustomers"]
-    cat_features = ["StoreType"]
+    num_features = [f"avg_{target_feature}", "avg_customers"]
+    cat_features = ["storetype"]
 
     preprocessor = ColumnTransformer(
         transformers=[
@@ -205,18 +226,18 @@ def preprocess_store_profile_data(profile_data: pd.DataFrame, target_feature:str
 def extended_preprocessing_rossmann_xgb(
     data: pd.DataFrame,
     profile_data: pd.DataFrame,
-    target_feature: str = "Sales",
-    id_feature: str = "Store",
+    target_feature: str = "sales",
+    id_feature: str = "store",
     categorical_features=None
 ):
 
     df = data.copy()
     df_profile = profile_data.copy()
 
-    #categorical_cols = ['StoreType', 'Assortment', 'Cluster']
+    #categorical_cols = ['storetype', 'assortment', 'cluster']
 
     clustered_train = df.merge(
-        df_profile[[id_feature, "Cluster"]],
+        df_profile[[id_feature, "cluster"]],
         on=id_feature,
         how="left"
     )
@@ -231,15 +252,15 @@ def extended_preprocessing_rossmann_xgb(
         train_encoded = clustered_train
 
     # Transform StateHoliday and SchoolHoliday into one column called IsHoliday
-    train_encoded["IsHoliday"] = np.where(
-        (train_encoded["StateHoliday"] != "0") |
-        (train_encoded["SchoolHoliday"] == 1),
+    train_encoded["is_holiday"] = np.where(
+        (train_encoded["stateholiday"] != "0") |
+        (train_encoded["schoolholiday"] == 1),
     1, 0)
 
     drop_features = [
-        "StateHoliday", "SchoolHoliday",
-        "Customers", "PromoInterval",
-        "Promo2SinceWeek", "Promo2SinceYear"
+        "stateholiday", "schoolholiday",
+        "customers", "promointerval",
+        "promo2sinceweek", "promo2sinceyear"
     ]
     train_encoded.drop(columns=drop_features, inplace=True)
 
@@ -258,9 +279,9 @@ def extended_preprocessing_rossmann_xgb(
 def split_train_val_data(
     data: pd.DataFrame,
     date_threshold:str,
-    date_feature:str="Date",
-    target_feature:str="Sales",
-    id_feature: str = "Store"
+    date_feature:str="date",
+    target_feature:str="sales",
+    id_feature: str = "store"
 ):
     """Split train and validation data based on date threshold
 
@@ -280,7 +301,7 @@ def split_train_val_data(
     e_val = df[df[date_feature] >= date_threshold]
 
     features = [col for col in e_train.columns if col not in
-        [date_feature, target_feature, "Customers"]
+        [date_feature, target_feature, "customers"]
     ]
 
     X_train = e_train[features]
@@ -289,4 +310,9 @@ def split_train_val_data(
     X_val = e_val[features]
     y_val = e_val[target_feature]
 
-    return X_train, y_train, X_val, y_val
+    # Copy for naive evaluation
+    X_val_naive = X_val.copy()
+    X_val_naive["date"] = e_val[date_feature]
+    X_val_naive[target_feature] = y_val.values
+
+    return X_train, y_train, X_val, y_val, X_val_naive

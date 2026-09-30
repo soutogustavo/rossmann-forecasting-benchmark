@@ -39,7 +39,13 @@ resource "aws_s3_bucket" "sales" {
 }
 
 resource "aws_s3_object" "prefixes" {
-  for_each = toset(["models/", "data-raw/", "data-processed/", "predictions/"])
+  for_each = toset([
+    "models/",
+    "data-store/",
+    "data-raw/",
+    "data-processed/",
+    "predictions/",
+  ])
 
   bucket  = aws_s3_bucket.sales.id
   key     = each.key

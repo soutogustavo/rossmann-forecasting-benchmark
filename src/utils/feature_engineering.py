@@ -6,7 +6,7 @@ import pandas as pd
 
 def create_lags_features_rossmann(
     data: pd.DataFrame, target_feature: str,
-    num_lags:int=3, id_feature:str="Store", min_shift_lag:int=7
+    num_lags:int=3, id_feature:str="store", min_shift_lag:int=7
 ):
     """Generate lags features for the Rossmann dataset give a target feature
 
@@ -33,7 +33,13 @@ def create_lags_features_rossmann(
     return df
 
 
-def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:str, window_size:int=3, id_feature:str="Store", min_shift_lag:int=7):
+def create_rolling_stats_features_rossmann(
+    data: pd.DataFrame,
+    target_feature:str,
+    window_size:int=3,
+    id_feature:str="store",
+    min_shift_lag:int=7
+):
     """Create rolling stats (mean, sum, std) given a target feature
 
     Args:
@@ -51,11 +57,20 @@ def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:st
 
     # Rolling statistics (Mean, Sum, Std) were computed exclusively over
     # the shifted $t-7$ baseline, eliminating any look-ahead bias.
-    df[f"safe_{target_feature}"] = df.groupby(id_feature)[target_feature].shift(min_shift_lag)
+    df[f"safe_{target_feature}"] = df.groupby(id_feature)[
+        target_feature].shift(min_shift_lag)
 
-    df[f"{target_feature}_mean"] = df.groupby(id_feature)[f"safe_{target_feature}"].rolling(window_size).mean().values
-    df[f"{target_feature}_sum"] = df.groupby(id_feature)[f"safe_{target_feature}"].rolling(window_size).sum().values
-    df[f"{target_feature}_std"] = df.groupby(id_feature)[f"safe_{target_feature}"].rolling(window_size).std().values
+    df[f"{target_feature}_mean"] = df.groupby(id_feature)[
+        f"safe_{target_feature}"
+    ].rolling(window_size).mean().values
+
+    df[f"{target_feature}_sum"] = df.groupby(id_feature)[
+        f"safe_{target_feature}"
+    ].rolling(window_size).sum().values
+
+    df[f"{target_feature}_std"] = df.groupby(id_feature)[
+        f"safe_{target_feature}"
+    ].rolling(window_size).std().values
 
     df.drop(columns=[f"safe_{target_feature}"], inplace=True)
 
@@ -64,7 +79,10 @@ def create_rolling_stats_features_rossmann(data: pd.DataFrame, target_feature:st
     return df
 
 
-def create_time_based_features_rossmann(data: pd.DataFrame, date_feature:str="Date"):
+def create_time_based_features_rossmann(
+    data: pd.DataFrame,
+    date_feature:str="date"
+):
     """Create time-based features given date feature
 
     Args:
@@ -88,7 +106,12 @@ def create_time_based_features_rossmann(data: pd.DataFrame, date_feature:str="Da
     return df
 
 
-def create_ewm_features_rossmann(data: pd.DataFrame, target_feature:str, id_feature:str="Store", span:int=7):
+def create_ewm_features_rossmann(
+    data: pd.DataFrame,
+    target_feature:str,
+    id_feature:str="store",
+    span:int=7
+):
     """Create a exponentially weighted moving average features given target feature
 
     Args:
@@ -103,12 +126,16 @@ def create_ewm_features_rossmann(data: pd.DataFrame, target_feature:str, id_feat
 
     df = data.copy()
 
-    df["ewm_mean"] = df.groupby(id_feature)[target_feature].ewm(span=span).mean().values
+    df["ewm_mean"] = df.groupby(id_feature)[
+        target_feature].ewm(span=span).mean().values
 
     return df
 
 
-def create_seasonal_indicator_features_rossmann(data: pd.DataFrame, date_feature:str="Date"):
+def create_seasonal_indicator_features_rossmann(
+    data: pd.DataFrame,
+    date_feature:str="date"
+):
     """Create seasonal indicators given date feature
 
     Args:
@@ -128,7 +155,10 @@ def create_seasonal_indicator_features_rossmann(data: pd.DataFrame, date_feature
     return df
 
 
-def create_cyclical_time_features_rossmann(data: pd.DataFrame, cyclical_features:list):
+def create_cyclical_time_features_rossmann(
+    data: pd.DataFrame,
+    cyclical_features:list
+):
     """Create cyclical features with sine and cosine.
 
     Args:
@@ -141,7 +171,7 @@ def create_cyclical_time_features_rossmann(data: pd.DataFrame, cyclical_features
 
     df = data.copy()
 
-    dow_feature = "DayOfWeek"
+    dow_feature = "dayofweek"
     if dow_feature in cyclical_features:
         df[f"{dow_feature}_sin"] = np.sin(2 * np.pi * df[dow_feature] / 7)
         df[f"{dow_feature}_cos"] = np.cos(2 * np.pi * df[dow_feature] / 7)
