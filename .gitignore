@@ -85,6 +85,13 @@ ipython_config.py
 # Additional
 .DS_Store
 *.csv
+.env
+*.parquet
+
+# Infra
+*.tfstate
+*.tfstate.*
+.terraform/
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
