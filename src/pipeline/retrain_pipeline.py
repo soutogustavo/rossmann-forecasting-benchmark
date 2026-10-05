@@ -31,7 +31,7 @@ from src.utils.preprocessing import (
     split_train_val_data,
 )
 from src.utils.processing import build_model, cluster_rossmann_stores
-from src.utils.results_promotion import register_and_promote
+from src.utils.promote import register_and_promote
 from src.utils.validation import validate_data
 
 logger = logging.getLogger(__name__)
@@ -43,12 +43,12 @@ MODEL_PARAMS = {
     "learning_rate": 0.05,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
+    "random_state": 42,
     "n_jobs": 1,
     "objective": "reg:tweedie",
     "tweedie_variance_power": 1.5,
     "tree_method": "hist",
     "enable_categorical": True,
-    "random_state": 42,
     "eval_names": ["train", "val"],
     "eval_metric": None,
 }
@@ -136,6 +136,12 @@ def run(cfg: PipelineConfig) -> GateResult:
 
         rossmann_eval = RossmannEvaluation(masks_by_length=masks_by_length)
         MODEL_PARAMS["eval_metric"] = rossmann_eval.smape_adjusted
+
+        logger.info("Training model with parameters: %s", MODEL_PARAMS)
+        logger.info("X_train shape: %s", X_train.shape)
+        logger.info("y_train shape: %s", y_train.shape)
+        logger.info("X_val shape: %s", X_val.shape)
+        logger.info("y_val shape: %s", y_val.shape)
 
         backtest_model = build_model(MODEL_PARAMS).fit(
             X_train, y_train,

@@ -13,6 +13,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    tfe = {
+      source  = "hashicorp/tfe"
+      version = "~> 0.60"
+    }
   }
 }
 
@@ -31,6 +35,11 @@ provider "aws" {
   }
 }
 
+data "tfe_outputs" "platform" {
+  organization = "gsouto-labs"
+  workspace    = "ml-platform-aws"
+}
+
 resource "aws_s3_bucket" "sales" {
   bucket = "gs-${local.environment}-rossmann-sales-forecasting"
   tags = {
@@ -40,15 +49,16 @@ resource "aws_s3_bucket" "sales" {
 
 resource "aws_s3_object" "prefixes" {
   for_each = toset([
-    "models/",
-    "data-store/",
     "data-raw/",
-    "data-processed/",
-    "predictions/",
+    "data-store/"
   ])
 
   bucket  = aws_s3_bucket.sales.id
   key     = each.key
   content = ""
 
+}
+
+output "tracking_uri" {
+  value = data.tfe_outputs.platform.nonsensitive_values.mlflow_tracking_uri
 }
