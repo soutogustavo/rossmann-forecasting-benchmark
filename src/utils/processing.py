@@ -10,6 +10,7 @@ from src.utils.evaluation import RossmannEvaluation, smape
 from src.utils.preprocessing import (
     create_store_profile,
     preprocess_store_profile_data,
+    set_clusters,
 )
 
 
@@ -73,6 +74,7 @@ def cluster_rossmann_stores(
     Returns:
         pd.DataFrame: DataFrame with the added cluster feature.
     """
+
     store_features = create_store_profile(data=data, store_data=store_data)
 
     X_processed = preprocess_store_profile_data(profile_data=store_features)
@@ -128,3 +130,38 @@ def train_xgb_model(X_train: pd.DataFrame, y_train: pd.Series,
 
 def build_model(model_params: dict):
     return xgb.XGBRegressor(**model_params)
+
+
+# -------
+
+def clustering_split_datasets(train, es, train_es, holdout, whole, pstore):
+    """Run clusters form each type of dataset we use in the retraining"""
+
+    train_profile = cluster_rossmann_stores(data=train, store_data=pstore)
+    train_es_profile = cluster_rossmann_stores(data=train_es, store_data=pstore)
+    whole_profile = cluster_rossmann_stores(data=whole, store_data=pstore)
+
+    train = set_clusters(train=train, store_profile=train_profile)
+    es = set_clusters(train=es, store_profile=train_profile)
+    train_es = set_clusters(train=train_es, store_profile=train_es_profile)
+    holdout = set_clusters(train=holdout, store_profile=train_es_profile)
+    whole = set_clusters(train=whole, store_profile=whole_profile)
+
+    return {
+        "train": train,
+        "es": es,
+        "train_es": train_es,
+        "holdout": holdout,
+        "whole": whole,
+    }
+
+def build_evaluation_rossmann_instance(X_train, y_train, X_val, y_val):
+
+    masks_by_length = {
+        len(y_train): X_train["open"].values,
+        len(y_val): X_val["open"].values,
+    }
+
+    return RossmannEvaluation(
+        masks_by_length=masks_by_length
+    )

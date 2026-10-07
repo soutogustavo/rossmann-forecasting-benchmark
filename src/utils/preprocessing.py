@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+from datetime import timedelta
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -177,7 +178,7 @@ def create_store_profile(
     df = data.copy()
     df_store = store_data.copy()
 
-    store_features = df.groupby(id_feature).agg({
+    store_features = df.groupby(id_feature, observed=True).agg({
         target_feature: "mean",
         "customers": "mean",
         "competitiondistance": "mean"
@@ -316,3 +317,116 @@ def split_train_val_data(
     X_val_naive[target_feature] = y_val.values
 
     return X_train, y_train, X_val, y_val, X_val_naive
+
+
+def split_initial_data(
+    data: pd.DataFrame,
+    date_threshold:str,
+    date_feature:str="date",
+    horizon_size: int = 60
+):
+    """Split initial data (train + validation) from data based on date threshold
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        date_threshold (str): Date threshold for splitting the data.
+
+    Returns:
+        tuple: Tuple containing the initial data (train + validation).
+    """
+
+    df = data.copy()
+
+    train = df[df[date_feature] < date_threshold]
+    val = df[df[date_feature] >= date_threshold]
+
+    horizon_end = pd.Timestamp(date_threshold) + timedelta(days=horizon_size-1)
+
+    return train, val[val[date_feature] <= horizon_end]
+
+
+def preprocessing_for_xgb(
+    data: pd.DataFrame,
+    horizon_size: int = 60,
+    target_feature: str = "sales",
+    categorical_features = None
+):
+    """Preprocess the data for XGBoost model.
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        horizon_size (int): Horizon size for the model.
+        target_feature (str): Name of the target feature.
+        categorical_features (list): List of categorical features.
+
+    Returns:
+        pd.DataFrame: DataFrame with the preprocessed data.
+    """
+
+    df = data.copy()
+
+    if categorical_features is not None:
+        df[categorical_features] = df[categorical_features].astype("category")
+
+    # Transform StateHoliday and SchoolHoliday into one column called IsHoliday
+    df["is_holiday"] = np.where(
+        (df["stateholiday"] != "0") |
+        (df["schoolholiday"] == 1),
+    1, 0)
+
+    '''drop_features = [
+        "stateholiday", "schoolholiday",
+        "customers", "promointerval",
+        "promo2sinceweek", "promo2sinceyear"
+    ]
+    df.drop(columns=drop_features, inplace=True)'''
+
+    df = create_lags_features_rossmann(
+        data=df,
+        min_shift_lag=horizon_size,
+        target_feature=target_feature
+    )
+    df = create_rolling_stats_features_rossmann(
+        data=df,
+        min_shift_lag=horizon_size,
+        target_feature=target_feature
+    )
+
+    return df
+
+# ----------
+
+def three_way_split(df: pd.DataFrame, cutoff, horizon: int = 60):
+    T = pd.Timestamp(cutoff)
+
+    holdout_start = T - pd.Timedelta(days=horizon - 1)    # T-59
+    es_start = holdout_start - pd.Timedelta(days=horizon)  # T-119
+
+    d = df["date"]
+
+    train   = df[d < es_start]
+    es      = df[(d >= es_start) & (d < holdout_start)]
+    holdout = df[(d >= holdout_start) & (d <= T)]
+
+    return train, es, holdout
+
+
+def set_clusters(train: pd.DataFrame, store_profile: pd.DataFrame, store_id: str = "store"):
+    df = train.copy()
+    df_store = store_profile.copy()
+
+    store_cluster_map = df_store[["store", "cluster"]].drop_duplicates()
+    store_cluster_map.set_index("store", inplace=True)
+    store_cluster_map = store_cluster_map.to_dict()["cluster"]
+
+    df["cluster"] = df["store"].map(lambda x: store_cluster_map[x])
+    df["cluster"] = df["cluster"].astype("category")
+
+    return df
+
+
+def build_schema(X_train: pd.DataFrame) -> dict:
+    return {
+        "columns": list(X_train.columns),
+        "dtypes": X_train.dtypes.to_dict()
+    }

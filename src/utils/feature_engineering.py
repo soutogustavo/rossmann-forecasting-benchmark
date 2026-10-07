@@ -25,7 +25,7 @@ def create_lags_features_rossmann(
 
     # The minimum shift for any autoregressive feature was locked at $t-7$,
     # aligning with a real-world weekly corporate planning cycle.
-    for lag in range(min_shift_lag, num_lags+min_shift_lag+1):
+    for lag in range(min_shift_lag, num_lags+min_shift_lag):
         df[f"{target_feature}_{lag}"] = df.groupby(id_feature)[target_feature].shift(lag)
 
     df.reset_index(drop=True, inplace=True)

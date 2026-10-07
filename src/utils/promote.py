@@ -1,14 +1,15 @@
 """ Results promotion utilities for Rossmann Forecasting Benchmark"""
 
+import json
 import logging
 import tempfile
 from pathlib import Path
 
-import joblib
 import mlflow
 import pandas as pd
 import xgboost as xgb
 from mlflow.exceptions import MlflowException
+from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 
 from src.config import PipelineConfig
@@ -20,19 +21,28 @@ logger = logging.getLogger(__name__)
 def register_and_promote(
     model: xgb.XGBRegressor,
     feature_builder: preprocess_rossmann_data,
+    artifacts: dict,
     X_example: pd.DataFrame,
     run_id: str,
     cfg: PipelineConfig,
 ) -> None:
 
-    with tempfile.TemporaryDirectory() as tmp:
-        fb_path = Path(tmp) / "feature_builder.joblib"
-        joblib.dump(feature_builder, fb_path)
-        mlflow.log_artifact(str(fb_path), artifact_path="model_extras")
+    X_sig = signature_frame(X_example)
+    signature = infer_signature(X_sig, X_example.tail(100))
 
-    mlflow.sklearn.log_model(
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        # artifacts["cluster_map"].to_parquet(tmp / "cluster_map.parquet", index=False)
+        (tmp / "schema.json").write_text(
+            json.dumps(schema_to_json(artifacts["schema"]), indent=2))
+        # (tmp / "feature_config.json").write_text(
+        #     json.dumps(artifacts["feature_config"], indent=2))
+        mlflow.log_artifacts(str(tmp), artifact_path="model_extras")
+
+    mlflow.xgboost.log_model(
         model,
         artifact_path="model",
+        signature=signature,
         input_example=X_example.head(5),
         registered_model_name=None if cfg.dry_run else cfg.model_name,
     )
@@ -67,3 +77,45 @@ def register_and_promote(
         "Registered %s v%s with alias '%s'",
         cfg.model_name, new_version, alias
     )
+
+
+def schema_to_json(schema: dict) -> dict:
+    """Convert schema to JSON format.
+
+    Args:
+        schema (dict): Schema to convert.
+
+    Returns:
+        dict: Schema in JSON format.
+    """
+    dtypes = {}
+
+    for col, dt in schema["dtypes"].items():
+        if isinstance(dt, pd.CategoricalDtype):
+            dtypes[col] = {
+                "type": "category",
+                "categories": dt.categories.tolist()
+            }
+        else:
+            dtypes[col] = {"type": str(dt)}
+
+    return {
+        "columns": schema["columns"],
+        "dtypes": dtypes
+    }
+
+
+def signature_frame(X: pd.DataFrame) -> pd.DataFrame:
+    """Copy of X with categories converted
+       to the type of values (only for the signature).
+
+    Args:
+        X (pd.DataFrame): DataFrame to convert.
+
+    Returns:
+        pd.DataFrame: DataFrame with categories converted to the type of values.
+    """
+    X = X.copy()
+    for col in X.select_dtypes("category"):
+        X[col] = X[col].astype(X[col].cat.categories.dtype)
+    return X

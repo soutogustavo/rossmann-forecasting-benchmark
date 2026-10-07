@@ -16,7 +16,6 @@ from src.config import PipelineConfig, load_config
 from src.utils.data import load_data
 from src.utils.evaluation import (
     GateResult,
-    RossmannEvaluation,
     get_champion_backtest_smape,
     quality_gate,
     sanity_check_refit,
@@ -24,13 +23,18 @@ from src.utils.evaluation import (
     smape,
 )
 from src.utils.preprocessing import (
-    extended_preprocessing_rossmann_xgb,
+    build_schema,
     merge_sales_and_store_data,
     preprocess_rossmann_data,
     preprocess_rossmann_store_data,
-    split_train_val_data,
+    preprocessing_for_xgb,
+    three_way_split,
 )
-from src.utils.processing import build_model, cluster_rossmann_stores
+from src.utils.processing import (
+    build_evaluation_rossmann_instance,
+    build_model,
+    clustering_split_datasets,
+)
 from src.utils.promote import register_and_promote
 from src.utils.validation import validate_data
 
@@ -38,8 +42,8 @@ logger = logging.getLogger(__name__)
 
 
 MODEL_PARAMS = {
-    "n_estimators": 500,
-    "max_depth": 6,
+    "n_estimators": 800,
+    "max_depth": 8,
     "learning_rate": 0.05,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
@@ -50,13 +54,40 @@ MODEL_PARAMS = {
     "tree_method": "hist",
     "enable_categorical": True,
     "eval_names": ["train", "val"],
+    "early_stopping_rounds": 50,
     "eval_metric": None,
 }
 
 
 VALID_ENVS = ["dev", "staging", "prod"]
 RUN_SCOPED_FIELDS = {"cutoff_date", "dry_run"}
-
+TARGET_NAME = "sales"
+CAT_FEATURES = ["storetype", "assortment"]
+FEATURES = [
+    "store",
+    "dayofweek",
+    "open",
+    "promo",
+    "storetype",
+    "assortment",
+    "competitiondistance",
+    "competitionopensincemonth",
+    "competitionopensinceyear",
+    "promo2",
+    "year",
+    "month",
+    "competitionopenmonth",
+    "competitionopenyear",
+    "days_to_competitor",
+    "cluster",
+    "is_holiday",
+    "sales_60",
+    "sales_61",
+    "sales_62",
+    "sales_mean",
+    "sales_sum",
+    "sales_std"
+]
 
 def parse_args(argv: list[str] | None = None) -> PipelineConfig:
     """Parse command-line arguments"""
@@ -114,91 +145,148 @@ def run(cfg: PipelineConfig) -> GateResult:
             "data_start": str(ptrain["date"].min().date())
         })
 
-        store_features = cluster_rossmann_stores(data=ptrain, store_data=pstore)
-        train_encoded = extended_preprocessing_rossmann_xgb(
+        prep_data = preprocessing_for_xgb(
             data=ptrain,
-            profile_data=store_features,
-            categorical_features=["storetype", "assortment", "cluster"]
+            horizon_size=cfg.horizon_days,
+            target_feature=TARGET_NAME,
+            categorical_features=CAT_FEATURES
         )
 
-        holdout_start = pd.Timestamp(
-            cfg.cutoff_date - timedelta(days=cfg.horizon_days - 1)
+        train, es, holdout = three_way_split(
+            prep_data,
+            cfg.cutoff_date,
+            cfg.horizon_days
         )
-        X_train, y_train, X_val, y_val, X_val_naive = split_train_val_data(
-            data=train_encoded,
-            date_threshold=holdout_start
+        train_es = pd.concat([train, es], axis=0)
+        whole = pd.concat([train, train_es, holdout], axis=0)
+
+        processed = clustering_split_datasets(
+            train=train.copy(),
+            es=es.copy(),
+            train_es=train_es.copy(),
+            holdout=holdout.copy(),
+            whole=whole.copy(),
+            pstore=pstore.copy()
         )
 
-        masks_by_length = {
-            len(y_train): X_train["open"].values,
-            len(y_val): X_val["open"].values,
-        }
-
-        rossmann_eval = RossmannEvaluation(masks_by_length=masks_by_length)
-        MODEL_PARAMS["eval_metric"] = rossmann_eval.smape_adjusted
-
-        logger.info("Training model with parameters: %s", MODEL_PARAMS)
-        logger.info("X_train shape: %s", X_train.shape)
-        logger.info("y_train shape: %s", y_train.shape)
-        logger.info("X_val shape: %s", X_val.shape)
-        logger.info("y_val shape: %s", y_val.shape)
+        X_train = processed["train"][FEATURES]
+        y_train = processed["train"][TARGET_NAME]
+        X_es = processed["es"][FEATURES]
+        y_es = processed["es"][TARGET_NAME]
+        rossmann_eval_s1 = build_evaluation_rossmann_instance(
+            X_train, y_train, X_es, y_es
+        )
+        MODEL_PARAMS["eval_metric"] = rossmann_eval_s1.smape_adjusted
 
         backtest_model = build_model(MODEL_PARAMS).fit(
-            X_train, y_train,
-            eval_set=[(X_train, y_train),(X_val, y_val)],
+            X_train,
+            y_train,
+            eval_set=[(X_train, y_train),(X_es, y_es)],
             verbose=50
         )
 
-        preds = backtest_model.predict(X_val)
-        preds = np.where(X_val['open'] == 0, 0, preds)
+        best_n = backtest_model.best_iteration + 1
+        mlflow.log_metric("best_iteration", backtest_model.best_iteration)
 
-        candidate_smape = smape(y_true=y_val, y_pred=preds)
-        naive_smape = smape(
-            y_true=y_val,
-            y_pred=seasonal_naive_forecast(X_val_naive, X_val_naive)
+        preds = backtest_model.predict(X_es[FEATURES])
+        preds = np.where(X_es["open"] == 0, 0, preds)
+        candidate_smape = smape(y_true=y_es, y_pred=preds)
+        logger.info("sMAPE = %s", f"{candidate_smape:.4f}")
+
+        X_train = processed["train_es"][FEATURES]
+        y_train = processed["train_es"][TARGET_NAME]
+        X_val = processed["holdout"][FEATURES]
+        y_val = processed["holdout"][TARGET_NAME]
+        rossmann_eval_s2 = build_evaluation_rossmann_instance(
+            X_train, y_train, X_val, y_val
+        )
+        MODEL_PARAMS["eval_metric"] = rossmann_eval_s2.smape_adjusted
+
+        refit_params = {**MODEL_PARAMS, "n_estimators": best_n}
+        refit_params.pop("early_stopping_rounds", None)
+
+        gate_model = build_model(refit_params).fit(
+            X_train,
+            y_train,
+            verbose=50
         )
 
+        preds = gate_model.predict(X_val[FEATURES])
+        preds = np.where(X_val["open"] == 0, 0, preds)
+        gate_smape = smape(y_true=y_val, y_pred=preds)
+        logger.info("sMAPE (gate) = %f", gate_smape)
+
+        naive_preds = seasonal_naive_forecast(
+            history=processed["train_es"],
+            target=processed["holdout"]
+        )
+        naive_preds = np.where(X_val["open"] == 0, 0, naive_preds)
+        naive_smape = smape(y_true=y_val, y_pred=naive_preds)
+        logger.info("sMAPE (naive) = %s", f"{naive_smape:.4f}")
+
         champion_smape = get_champion_backtest_smape(cfg.model_name)
-        print(f"sMAPE = {candidate_smape:.3f}")
-        print(f"Naive sMAPE = {naive_smape:.3f}")
 
         metrics = {"backtest_smape": candidate_smape, "naive_smape": naive_smape}
         if champion_smape is not None:
             metrics["champion_backtest_smape"] = champion_smape
         mlflow.log_metrics(metrics)
         logger.info("Backtest sMAPE: candidate=%.4f naive=%.4f champion=%s",
-                    candidate_smape, naive_smape, f"{champion_smape:.4f}" if champion_smape else "n/a")
+                    candidate_smape, naive_smape,
+                    f"{champion_smape:.4f}" if champion_smape else "n/a")
 
         gate = quality_gate(candidate_smape, naive_smape, champion_smape, cfg)
-        mlflow.set_tags({"gate_passed": str(gate.passed), "gate_reasons": " | ".join(gate.reasons) or "none"})
+        mlflow.set_tags({
+            "gate_passed": str(gate.passed),
+            "gate_reasons": " | ".join(gate.reasons) or "none"
+        })
         if not gate.passed:
-            logger.warning("Candidate rejected:\n  - %s", "\n  - ".join(gate.reasons))
+            logger.warning(
+                "Candidate rejected:\n  - %s", "\n  - ".join(gate.reasons)
+            )
             return gate
 
-        final_model = build_model(MODEL_PARAMS).fit(
-                train_encoded[X_train.columns],
-                train_encoded["sales"],
+        X_train_final = processed["whole"]
+        y_train_final = processed["whole"][TARGET_NAME]
+
+        schema_final = build_schema(X_train_final[FEATURES])
+
+        refit_params = {**MODEL_PARAMS, "n_estimators": best_n}
+        refit_params.pop("early_stopping_rounds", None)
+
+        final_model = build_model(refit_params).fit(
+                X_train_final[FEATURES],
+                y_train_final,
                 verbose=50
             )
 
-        recent_mask = (train_encoded["date"] > pd.Timestamp(
-            cfg.cutoff_date - timedelta(days=28)))
+        mlflow.log_params({
+            "final_n_estimators": best_n,
+            "final_train_end": str(X_train_final["date"].max().date()),
+        })
+        mlflow.log_metric("final_train_rows", len(X_train_final))
+
+        recent = (
+            (X_train_final["date"] > pd.Timestamp(
+                cfg.cutoff_date) - pd.Timedelta(days=28))
+            & (X_train_final["open"] == 1)
+        )
         sanity_check_refit(
             final_model,
-            train_encoded[X_train.columns],
-            train_encoded["sales"],
-            recent_mask
+            X_train_final[FEATURES],
+            y_train_final,
+            recent
         )
 
         register_and_promote(
-            final_model,
-            preprocess_rossmann_data,
-            train_encoded[X_train.columns],
-            mlrun.info.run_id,
-            cfg
+            model=final_model,
+            feature_builder=preprocess_rossmann_data,
+            artifacts = {"schema": schema_final},
+            X_example=X_train_final[FEATURES],
+            run_id=mlrun.info.run_id,
+            cfg=cfg
         )
 
-
+        return gate
 
 def main(argv: list[str] | None = None) -> int:
     """Main entrypoint for retraining pipeline execution."""
@@ -212,11 +300,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv)
         cfg = load_config(args.env, args.cutoff_date)
-        run(cfg)
-        return 0
+        gate = run(cfg)
+
     except (ValueError, argparse.ArgumentError) as exc:
         logger.error("Failed to execute retraining pipeline: %s", exc)
-        return 1
+
+    if not gate.passed:
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
