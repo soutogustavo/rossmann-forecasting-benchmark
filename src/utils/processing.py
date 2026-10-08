@@ -10,7 +10,7 @@ from src.utils.evaluation import RossmannEvaluation, smape
 from src.utils.preprocessing import (
     create_store_profile,
     preprocess_store_profile_data,
-    set_clusters,
+    set_cluster_feature,
 )
 
 
@@ -141,11 +141,11 @@ def clustering_split_datasets(train, es, train_es, holdout, whole, pstore):
     train_es_profile = cluster_rossmann_stores(data=train_es, store_data=pstore)
     whole_profile = cluster_rossmann_stores(data=whole, store_data=pstore)
 
-    train = set_clusters(train=train, store_profile=train_profile)
-    es = set_clusters(train=es, store_profile=train_profile)
-    train_es = set_clusters(train=train_es, store_profile=train_es_profile)
-    holdout = set_clusters(train=holdout, store_profile=train_es_profile)
-    whole = set_clusters(train=whole, store_profile=whole_profile)
+    train = set_cluster_feature(data=train, store_profile=train_profile)
+    es = set_cluster_feature(data=es, store_profile=train_profile)
+    train_es = set_cluster_feature(data=train_es, store_profile=train_es_profile)
+    holdout = set_cluster_feature(data=holdout, store_profile=train_es_profile)
+    whole = set_cluster_feature(data=whole, store_profile=whole_profile)
 
     return {
         "train": train,

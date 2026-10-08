@@ -26,7 +26,7 @@ def create_lags_features_rossmann(
     # The minimum shift for any autoregressive feature was locked at $t-7$,
     # aligning with a real-world weekly corporate planning cycle.
     for lag in range(min_shift_lag, num_lags+min_shift_lag):
-        df[f"{target_feature}_{lag}"] = df.groupby(id_feature)[target_feature].shift(lag)
+        df[f"{target_feature}_{lag}"] = df.groupby(id_feature, observed=True)[target_feature].shift(lag)
 
     df.reset_index(drop=True, inplace=True)
 
@@ -57,18 +57,18 @@ def create_rolling_stats_features_rossmann(
 
     # Rolling statistics (Mean, Sum, Std) were computed exclusively over
     # the shifted $t-7$ baseline, eliminating any look-ahead bias.
-    df[f"safe_{target_feature}"] = df.groupby(id_feature)[
+    df[f"safe_{target_feature}"] = df.groupby(id_feature, observed=True)[
         target_feature].shift(min_shift_lag)
 
-    df[f"{target_feature}_mean"] = df.groupby(id_feature)[
+    df[f"{target_feature}_mean"] = df.groupby(id_feature, observed=True)[
         f"safe_{target_feature}"
     ].rolling(window_size).mean().values
 
-    df[f"{target_feature}_sum"] = df.groupby(id_feature)[
+    df[f"{target_feature}_sum"] = df.groupby(id_feature, observed=True)[
         f"safe_{target_feature}"
     ].rolling(window_size).sum().values
 
-    df[f"{target_feature}_std"] = df.groupby(id_feature)[
+    df[f"{target_feature}_std"] = df.groupby(id_feature, observed=True)[
         f"safe_{target_feature}"
     ].rolling(window_size).std().values
 
@@ -126,7 +126,7 @@ def create_ewm_features_rossmann(
 
     df = data.copy()
 
-    df["ewm_mean"] = df.groupby(id_feature)[
+    df["ewm_mean"] = df.groupby(id_feature, observed=True)[
         target_feature].ewm(span=span).mean().values
 
     return df

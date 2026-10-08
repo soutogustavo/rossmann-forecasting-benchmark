@@ -28,7 +28,7 @@ from src.utils.preprocessing import (
     preprocess_rossmann_data,
     preprocess_rossmann_store_data,
     preprocessing_for_xgb,
-    three_way_split,
+    split_input_data,
 )
 from src.utils.processing import (
     build_evaluation_rossmann_instance,
@@ -152,10 +152,10 @@ def run(cfg: PipelineConfig) -> GateResult:
             categorical_features=CAT_FEATURES
         )
 
-        train, es, holdout = three_way_split(
-            prep_data,
-            cfg.cutoff_date,
-            cfg.horizon_days
+        train, es, holdout = split_input_data(
+            data=prep_data,
+            cutoff=cfg.cutoff_date,
+            horizon=cfg.horizon_days
         )
         train_es = pd.concat([train, es], axis=0)
         whole = pd.concat([train, train_es, holdout], axis=0)
