@@ -171,7 +171,7 @@ def seasonal_naive_forecast(
         history.loc[history["open"] == 1]
         .assign(dow=lambda d: d["date"].dt.dayofweek)
         .sort_values("date")
-        .groupby(["store", "dayofweek"])["sales"]
+        .groupby(["store", "dayofweek"], observed=True)["sales"]
         .last()
         .rename("naive_pred")
     )

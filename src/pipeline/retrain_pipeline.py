@@ -53,14 +53,11 @@ MODEL_PARAMS = {
     "tweedie_variance_power": 1.5,
     "tree_method": "hist",
     "enable_categorical": True,
-    "eval_names": ["train", "val"],
     "early_stopping_rounds": 50,
     "eval_metric": None,
 }
 
-
 VALID_ENVS = ["dev", "staging", "prod"]
-RUN_SCOPED_FIELDS = {"cutoff_date", "dry_run"}
 TARGET_NAME = "sales"
 CAT_FEATURES = ["storetype", "assortment"]
 FEATURES = [
@@ -121,6 +118,7 @@ def run(cfg: PipelineConfig) -> GateResult:
     logger.info("Cutoff date: %s", cfg.cutoff_date)
 
     mlflow.set_experiment(cfg.experiment_name)
+
     with mlflow.start_run(run_name=f"retrain_{cfg.cutoff_date:%Y-%m-%d}") as mlrun:
         mlflow.set_tags({"env": cfg.env, "pipeline": "retraining"})
         mlflow.log_params(
@@ -226,7 +224,11 @@ def run(cfg: PipelineConfig) -> GateResult:
 
         champion_smape = get_champion_backtest_smape(cfg.model_name)
 
-        metrics = {"backtest_smape": candidate_smape, "naive_smape": naive_smape}
+        metrics = {
+            "backtest_smape": candidate_smape,
+            "naive_smape": naive_smape
+        }
+
         if champion_smape is not None:
             metrics["champion_backtest_smape"] = champion_smape
         mlflow.log_metrics(metrics)
@@ -307,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not gate.passed:
         return 2
+
     return 0
 
 
