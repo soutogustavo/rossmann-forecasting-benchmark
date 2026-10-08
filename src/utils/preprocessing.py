@@ -117,10 +117,9 @@ def prepare_cluster_data_for_training(
     cluster_ptrain.reset_index(drop=True, inplace=True)
     cluster_ptrain.rename(columns={"Date": "ds", "Sales": "y"}, inplace=True)
 
-    #cluster_features = ["ds", "y", "Open", "Promo", "DayOfWeek"]
     cluster_x_train = cluster_ptrain[cluster_features]
 
-    agg_x = cluster_x_train.groupby("ds").agg({
+    agg_x = cluster_x_train.groupby("ds", observed=True).agg({
         "y": "mean",  # Sales
         "Open": "mean",
         "Promo": "mean",
@@ -131,7 +130,11 @@ def prepare_cluster_data_for_training(
     return (agg_x, cluster_ptrain)
 
 
-def split_cluster_data(train_size: float, agg_x: pd.DataFrame, margin: float = 1.15):
+def split_cluster_data(
+    train_size: float,
+    agg_x: pd.DataFrame,
+    margin: float = 1.15
+):
     """Splits the cluster data into training and testing sets.
 
     Args:
@@ -140,14 +143,15 @@ def split_cluster_data(train_size: float, agg_x: pd.DataFrame, margin: float = 1
         margin (float): The margin to apply to the maximum sales by day.
 
     Returns:
-        tuple(pd.DataFrame, pd.DataFrame, pd.Series): The training and testing sets and cap by day.
+        tuple(pd.DataFrame, pd.DataFrame, pd.Series):
+            The training and testing sets and cap by day.
     """
 
     num_points = int(agg_x.shape[0] * train_size)
     agg_x_train = agg_x[:num_points]
     agg_x_test = agg_x[num_points:]
 
-    cap_by_day = agg_x_train.groupby("DayOfWeek")["y"].max() * margin
+    cap_by_day = agg_x_train.groupby("DayOfWeek", observed=True)["y"].max() * margin
     cap_by_day = cap_by_day.replace(0.0, 0.0001)
 
     agg_x_train['cap'] = agg_x_train["DayOfWeek"].map(cap_by_day)
@@ -177,7 +181,7 @@ def create_store_profile(
     df = data.copy()
     df_store = store_data.copy()
 
-    store_features = df.groupby(id_feature).agg({
+    store_features = df.groupby(id_feature, observed=True).agg({
         target_feature: "mean",
         "customers": "mean",
         "competitiondistance": "mean"
@@ -199,7 +203,10 @@ def create_store_profile(
     return store_features
 
 
-def preprocess_store_profile_data(profile_data: pd.DataFrame, target_feature:str="sales"):
+def preprocess_store_profile_data(
+    profile_data: pd.DataFrame,
+    target_feature:str="sales"
+):
     """Preprocess the store profile data.
 
     Args:
@@ -223,96 +230,115 @@ def preprocess_store_profile_data(profile_data: pd.DataFrame, target_feature:str
     return preprocessor.fit_transform(df)
 
 
-def extended_preprocessing_rossmann_xgb(
+def preprocessing_for_xgb(
     data: pd.DataFrame,
-    profile_data: pd.DataFrame,
+    horizon_size: int = 60,
     target_feature: str = "sales",
-    id_feature: str = "store",
-    categorical_features=None
+    categorical_features = None
 ):
-
-    df = data.copy()
-    df_profile = profile_data.copy()
-
-    #categorical_cols = ['storetype', 'assortment', 'cluster']
-
-    clustered_train = df.merge(
-        df_profile[[id_feature, "cluster"]],
-        on=id_feature,
-        how="left"
-    )
-
-    if categorical_features is not None:
-        train_encoded = pd.get_dummies(
-            clustered_train,
-            columns=categorical_features,
-            drop_first=True
-        )
-    else:
-        train_encoded = clustered_train
-
-    # Transform StateHoliday and SchoolHoliday into one column called IsHoliday
-    train_encoded["is_holiday"] = np.where(
-        (train_encoded["stateholiday"] != "0") |
-        (train_encoded["schoolholiday"] == 1),
-    1, 0)
-
-    drop_features = [
-        "stateholiday", "schoolholiday",
-        "customers", "promointerval",
-        "promo2sinceweek", "promo2sinceyear"
-    ]
-    train_encoded.drop(columns=drop_features, inplace=True)
-
-    train_encoded = create_lags_features_rossmann(
-        data=train_encoded,
-        target_feature=target_feature
-    )
-    train_encoded = create_rolling_stats_features_rossmann(
-        data=train_encoded,
-        target_feature=target_feature
-    )
-
-    return train_encoded
-
-
-def split_train_val_data(
-    data: pd.DataFrame,
-    date_threshold:str,
-    date_feature:str="date",
-    target_feature:str="sales",
-    id_feature: str = "store"
-):
-    """Split train and validation data based on date threshold
+    """Preprocess the data for XGBoost model.
 
     Args:
         data (pd.DataFrame): DataFrame with the dataset.
-        date_threshold (str): Date threshold for splitting the data.
+        horizon_size (int): Horizon size for the model.
         target_feature (str): Name of the target feature.
-        id_feature (str): Name of the id feature.
+        categorical_features (list): List of categorical features.
 
     Returns:
-        tuple: Tuple containing the train and validation data.
+        pd.DataFrame: DataFrame with the preprocessed data.
     """
 
     df = data.copy()
 
-    e_train = df[df[date_feature] < date_threshold]
-    e_val = df[df[date_feature] >= date_threshold]
+    if categorical_features is not None:
+        df[categorical_features] = df[categorical_features].astype("category")
 
-    features = [col for col in e_train.columns if col not in
-        [date_feature, target_feature, "customers"]
-    ]
+    df["is_holiday"] = np.where(
+        (df["stateholiday"] != "0") |
+        (df["schoolholiday"] == 1),
+    1, 0)
 
-    X_train = e_train[features]
-    y_train = e_train[target_feature]
+    df = create_lags_features_rossmann(
+        data=df,
+        min_shift_lag=horizon_size,
+        target_feature=target_feature
+    )
+    df = create_rolling_stats_features_rossmann(
+        data=df,
+        min_shift_lag=horizon_size,
+        target_feature=target_feature
+    )
 
-    X_val = e_val[features]
-    y_val = e_val[target_feature]
+    return df
 
-    # Copy for naive evaluation
-    X_val_naive = X_val.copy()
-    X_val_naive["date"] = e_val[date_feature]
-    X_val_naive[target_feature] = y_val.values
 
-    return X_train, y_train, X_val, y_val, X_val_naive
+def split_input_data(
+    data: pd.DataFrame,
+    cutoff,
+    horizon: int = 60
+):
+    """Split the dataset into training and testing sets.
+
+    Args:
+        data (pd.DataFrame): Dataset.
+        cutoff (pd.Timestamp): Cutoff date.
+        horizon (int): Horizon size.
+
+    Returns:
+        tuple: Train, validation, and test sets.
+    """
+    T = pd.Timestamp(cutoff)
+
+    holdout_start = T - pd.Timedelta(days=horizon - 1)    # T-59
+    es_start = holdout_start - pd.Timedelta(days=horizon)  # T-119
+
+    d = data["date"]
+
+    train   = data[d < es_start]
+    es      = data[(d >= es_start) & (d < holdout_start)]
+    holdout = data[(d >= holdout_start) & (d <= T)]
+
+    return train, es, holdout
+
+
+def set_cluster_feature(
+    data: pd.DataFrame,
+    store_profile: pd.DataFrame,
+    store_id: str = "store"
+):
+    """Set cluster feature to the dataset.
+
+    Args:
+        data (pd.DataFrame): Dataset.
+        store_profile (pd.DataFrame): Store profile data.
+        store_id (str, optional): Store id column name. Defaults to "store".
+
+    Returns:
+        pd.DataFrame: Dataset with cluster feature.
+    """
+    df = data.copy()
+    df_store = store_profile.copy()
+
+    store_cluster_map = df_store[[store_id, "cluster"]].drop_duplicates()
+    store_cluster_map.set_index(store_id, inplace=True)
+    store_cluster_map = store_cluster_map.to_dict()["cluster"]
+
+    df["cluster"] = df[store_id].map(lambda x: store_cluster_map[x])
+    df["cluster"] = df["cluster"].astype("category")
+
+    return df
+
+
+def build_schema(X_train: pd.DataFrame) -> dict:
+    """Build schema from training data.
+
+    Args:
+        X_train (pd.DataFrame): Training data.
+
+    Returns:
+        dict: Dictionary with schema.
+    """
+    return {
+        "columns": list(X_train.columns),
+        "dtypes": X_train.dtypes.to_dict()
+    }
