@@ -93,7 +93,18 @@ def train_xgb_model(X_train: pd.DataFrame, y_train: pd.Series,
     X_val: pd.DataFrame, y_val: pd.Series,
     rossmann_eval: RossmannEvaluation
 ):
-    """Train the XGBoost model"""
+    """Train the XGBoost model - dev/staging only
+
+    Args:
+        X_train (pd.DataFrame): Training data features.
+        y_train (pd.Series): Training data target.
+        X_val (pd.DataFrame): Validation data features.
+        y_val (pd.Series): Validation data target.
+        rossmann_eval (RossmannEvaluation): Rossmann evaluation instance.
+
+    Returns:
+        xgb.XGBRegressor: Trained XGBoost model.
+    """
 
     model_xgb = xgb.XGBRegressor(
         n_estimators=500,
@@ -129,13 +140,32 @@ def train_xgb_model(X_train: pd.DataFrame, y_train: pd.Series,
 
 
 def build_model(model_params: dict):
+    """
+    Build the XGBoost model.
+
+    Args:
+        model_params (dict): Model parameters.
+
+    Returns:
+        xgb.XGBRegressor: XGBoost model.
+    """
     return xgb.XGBRegressor(**model_params)
 
 
-# -------
-
 def clustering_split_datasets(train, es, train_es, holdout, whole, pstore):
-    """Run clusters form each type of dataset we use in the retraining"""
+    """Run clusters form each type of dataset we use in the retraining
+
+    Args:
+        train (pd.DataFrame): Training data.
+        es (pd.DataFrame): Data set for Early Stopping (ES).
+        train_es (pd.DataFrame): Train + ES set data.
+        holdout (pd.DataFrame): Holdout set data.
+        whole (pd.DataFrame): Whole dataset.
+        pstore (pd.DataFrame): Store profile data.
+
+    Returns:
+        dict: Dictionary with the updated datasets and cluster map.
+    """
 
     train_profile = cluster_rossmann_stores(data=train, store_data=pstore)
     train_es_profile = cluster_rossmann_stores(data=train_es, store_data=pstore)
@@ -153,9 +183,23 @@ def clustering_split_datasets(train, es, train_es, holdout, whole, pstore):
         "train_es": train_es,
         "holdout": holdout,
         "whole": whole,
+        "cluster_map": whole_profile[["store", "cluster"]]
     }
 
+
 def build_evaluation_rossmann_instance(X_train, y_train, X_val, y_val):
+    """
+    Build the Rossmann evaluation instance.
+
+    Args:
+        X_train (pd.DataFrame): Training data features.
+        y_train (pd.Series): Training data target.
+        X_val (pd.DataFrame): Validation data features.
+        y_val (pd.Series): Validation data target.
+
+    Returns:
+        RossmannEvaluation: Rossmann evaluation instance.
+    """
 
     masks_by_length = {
         len(y_train): X_train["open"].values,

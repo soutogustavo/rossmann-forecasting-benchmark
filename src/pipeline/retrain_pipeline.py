@@ -29,6 +29,7 @@ from src.utils.preprocessing import (
     preprocess_rossmann_data,
     preprocess_rossmann_store_data,
     preprocessing_for_xgb,
+    same_weekday_lags,
     split_input_data,
 )
 from src.utils.processing import (
@@ -79,12 +80,14 @@ FEATURES = [
     "days_to_competitor",
     "cluster",
     "is_holiday",
-    "sales_60",
-    "sales_61",
-    "sales_62",
-    "sales_mean",
-    "sales_sum",
-    "sales_std"
+    "sales_lag_63",
+    "sales_lag_70",
+    "sales_lag_77",
+    "sales_lag_84",
+    "sales_roll7_mean",
+    "sales_roll7_std",
+    "sales_roll28_mean",
+    "sales_roll28_std",
 ]
 
 def parse_args(argv: list[str] | None = None) -> PipelineConfig:
@@ -401,7 +404,17 @@ def run(cfg: PipelineConfig) -> GateResult:
         register_and_promote(
             model=final_model,
             feature_builder=preprocess_rossmann_data,
-            artifacts = {"schema": schema_final},
+            artifacts = {
+                "schema": schema_final,
+                "cluster_map": processed["cluster_map"],
+                "feature_config": {
+                    "features": FEATURES,
+                    "horizon_size": cfg.horizon_days,
+                    "lags": same_weekday_lags(cfg.horizon_days),
+                    "rolling_windows": [7, 28],
+                    "best_n": best_n,
+                }
+            },
             X_example=X_train_final[FEATURES],
             run_id=mlrun.info.run_id,
             cfg=cfg

@@ -6,8 +6,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from src.utils.feature_engineering import (
-    create_lags_features_rossmann,
-    create_rolling_stats_features_rossmann,
+    create_lag_features,
+    create_rolling_features,
+    same_weekday_lags,
 )
 
 
@@ -258,15 +259,21 @@ def preprocessing_for_xgb(
         (df["schoolholiday"] == 1),
     1, 0)
 
-    df = create_lags_features_rossmann(
+    df = create_lag_features(
         data=df,
-        min_shift_lag=horizon_size,
-        target_feature=target_feature
+        target=target_feature,
+        lags=same_weekday_lags(horizon_size),
+        horizon=horizon_size,
+        id_feature="store",
+        date_feature="date"
     )
-    df = create_rolling_stats_features_rossmann(
+    df = create_rolling_features(
         data=df,
-        min_shift_lag=horizon_size,
-        target_feature=target_feature
+        target=target_feature,
+        horizon=horizon_size,
+        windows=(7, 28),
+        id_feature="store",
+        date_feature="date"
     )
 
     return df

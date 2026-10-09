@@ -32,11 +32,11 @@ def register_and_promote(
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        # artifacts["cluster_map"].to_parquet(tmp / "cluster_map.parquet", index=False)
+        artifacts["cluster_map"].to_parquet(tmp / "cluster_map.parquet", index=False)
         (tmp / "schema.json").write_text(
             json.dumps(schema_to_json(artifacts["schema"]), indent=2))
-        # (tmp / "feature_config.json").write_text(
-        #     json.dumps(artifacts["feature_config"], indent=2))
+        (tmp / "feature_config.json").write_text(
+            json.dumps(artifacts["feature_config"], indent=2))
         mlflow.log_artifacts(str(tmp), artifact_path="model_extras")
 
     mlflow.xgboost.log_model(

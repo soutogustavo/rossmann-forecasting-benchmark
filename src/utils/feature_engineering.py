@@ -4,81 +4,6 @@ import numpy as np
 import pandas as pd
 
 
-def create_lags_features_rossmann(
-    data: pd.DataFrame, target_feature: str,
-    num_lags:int=3, id_feature:str="store", min_shift_lag:int=7
-):
-    """Generate lags features for the Rossmann dataset give a target feature
-
-    Args:
-        data (pd.DataFrame): DataFrame with the dataset.
-        target_feature (str): Name of the target feature.
-        num_lags (int): Number of lags to generate.
-        id_feature (str): Name of the id feature.
-        min_shift_lag (int): Minimum shift lag to generate.
-
-    Returns:
-        pd.DataFrame: DataFrame with the added features.
-    """
-
-    df = data.copy()
-
-    # The minimum shift for any autoregressive feature was locked at $t-7$,
-    # aligning with a real-world weekly corporate planning cycle.
-    for lag in range(min_shift_lag, num_lags+min_shift_lag):
-        df[f"{target_feature}_{lag}"] = df.groupby(id_feature, observed=True)[target_feature].shift(lag)
-
-    df.reset_index(drop=True, inplace=True)
-
-    return df
-
-
-def create_rolling_stats_features_rossmann(
-    data: pd.DataFrame,
-    target_feature:str,
-    window_size:int=3,
-    id_feature:str="store",
-    min_shift_lag:int=7
-):
-    """Create rolling stats (mean, sum, std) given a target feature
-
-    Args:
-        data (pd.DataFrame): DataFrame with the dataset.
-        target_feature (str): Name of the target feature.
-        window_size (int): Window size for the rolling statistics.
-        id_feature (str): Name of the id feature.
-        min_shift_lag (int): Minimum shift lag to generate.
-
-    Returns:
-        pd.DataFrame: DataFrame with the added features.
-    """
-
-    df = data.copy()
-
-    # Rolling statistics (Mean, Sum, Std) were computed exclusively over
-    # the shifted $t-7$ baseline, eliminating any look-ahead bias.
-    df[f"safe_{target_feature}"] = df.groupby(id_feature, observed=True)[
-        target_feature].shift(min_shift_lag)
-
-    df[f"{target_feature}_mean"] = df.groupby(id_feature, observed=True)[
-        f"safe_{target_feature}"
-    ].rolling(window_size).mean().values
-
-    df[f"{target_feature}_sum"] = df.groupby(id_feature, observed=True)[
-        f"safe_{target_feature}"
-    ].rolling(window_size).sum().values
-
-    df[f"{target_feature}_std"] = df.groupby(id_feature, observed=True)[
-        f"safe_{target_feature}"
-    ].rolling(window_size).std().values
-
-    df.drop(columns=[f"safe_{target_feature}"], inplace=True)
-
-    df.reset_index(drop=True, inplace=True)
-
-    return df
-
-
 def create_time_based_features_rossmann(
     data: pd.DataFrame,
     date_feature:str="date"
@@ -186,4 +111,82 @@ def create_cyclical_time_features_rossmann(
         df[f"{woy_feature}_sin"] = np.sin(2 * np.pi * df[woy_feature] / 52)
         df[f"{woy_feature}_cos"] = np.cos(2 * np.pi * df[woy_feature] / 52)
 
+    return df
+
+
+def same_weekday_lags(horizon: int, n: int = 4) -> list[int]:
+    """Generate lags of the same weekday.
+        Every lag needs to be >= horizon (no look-ahead).
+
+    Args:
+        horizon (int): Horizon for the lags.
+        n (int, optional): Number of lags to generate. Defaults to 4.
+
+    Returns:
+        list[int]: List of lags.
+    """
+    first = -(-horizon // 7) * 7
+    return [first + 7 * k for k in range(n)]
+
+
+def create_lag_features(
+    data: pd.DataFrame,
+    target: str,
+    lags: list[int],
+    *,
+    horizon: int,
+    id_feature: str = "store",
+    date_feature: str = "date",
+) -> pd.DataFrame:
+    """Lags of the target per store. Every lag needs to be >= horizon (no look-ahead).
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        target (str): Name of the target feature.
+        lags (list[int]): List of lags to generate.
+        horizon (int): Horizon for the lags.
+        id_feature (str, optional): Name of the id feature. Defaults to "store".
+        date_feature (str, optional): Name of the date feature. Defaults to "date".
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+
+    df = data.sort_values([id_feature, date_feature]).copy()
+    g = df.groupby(id_feature, observed=True)[target]
+    for lag in lags:
+        df[f"{target}_lag_{lag}"] = g.shift(lag)
+    return df
+
+
+def create_rolling_features(
+    data: pd.DataFrame,
+    target: str,
+    *,
+    horizon: int,
+    windows: tuple[int, ...] = (7, 28),
+    id_feature: str = "store",
+    date_feature: str = "date",
+) -> pd.DataFrame:
+    """Mean and standard deviation in windows over the series shifted by `horizon` days.
+
+    Args:
+        data (pd.DataFrame): DataFrame with the dataset.
+        target (str): Name of the target feature.
+        windows (tuple[int, ...], optional): Window sizes for the rolling statistics. Defaults to (7, 28).
+        id_feature (str, optional): Name of the id feature. Defaults to "store".
+        date_feature (str, optional): Name of the date feature. Defaults to "date".
+
+    Returns:
+        pd.DataFrame: DataFrame with the added features.
+    """
+    df = data.sort_values([id_feature, date_feature]).copy()
+    if not df.index.is_unique:
+        raise ValueError("Index duplication: index alignment would fail")
+
+    shifted = df.groupby(id_feature, observed=True)[target].shift(horizon)
+    g = shifted.groupby(df[id_feature], observed=True)
+    for w in windows:
+        df[f"{target}_roll{w}_mean"] = g.rolling(w).mean().droplevel(0)
+        df[f"{target}_roll{w}_std"] = g.rolling(w).std().droplevel(0)
     return df
