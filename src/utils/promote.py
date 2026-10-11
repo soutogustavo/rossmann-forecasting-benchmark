@@ -13,14 +13,12 @@ from mlflow.models import infer_signature
 from mlflow.tracking import MlflowClient
 
 from src.config import PipelineConfig
-from src.utils.preprocessing import preprocess_rossmann_data
 
 logger = logging.getLogger(__name__)
 
 
 def register_and_promote(
     model: xgb.XGBRegressor,
-    feature_builder: preprocess_rossmann_data,
     artifacts: dict,
     X_example: pd.DataFrame,
     run_id: str,
@@ -94,7 +92,8 @@ def schema_to_json(schema: dict) -> dict:
         if isinstance(dt, pd.CategoricalDtype):
             dtypes[col] = {
                 "type": "category",
-                "categories": dt.categories.tolist()
+                "categories": dt.categories.tolist(),
+                "categories_dtype": str(dt.categories.dtype),
             }
         else:
             dtypes[col] = {"type": str(dt)}

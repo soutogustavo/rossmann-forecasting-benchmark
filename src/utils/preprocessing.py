@@ -48,17 +48,10 @@ def preprocess_rossmann_data(df, max_competitor_distance: int = 200000):
     df["competitiondistance"] = df["competitiondistance"].fillna(
         max_competitor_distance)
 
-    df["competitionopenmonth"] = df.apply(
-        lambda x: x["date"].month
-        if np.isnan(x["competitionopensincemonth"])
-        else x["competitionopensincemonth"], axis=1
-    )
-
-    df["competitionopenyear"] = df.apply(
-        lambda x: x["date"].year
-        if np.isnan(x["competitionopensinceyear"])
-        else x["competitionopensinceyear"], axis=1
-    )
+    df["competitionopenmonth"] = df[
+        "competitionopensincemonth"].fillna(df["date"].dt.month)
+    df["competitionopenyear"] = df[
+        "competitionopensinceyear"].fillna(df["date"].dt.year)
 
     binary_features = ["promo", "promo2", "schoolholiday"]
     df[binary_features] = df[binary_features].fillna(0)
@@ -349,3 +342,39 @@ def build_schema(X_train: pd.DataFrame) -> dict:
         "columns": list(X_train.columns),
         "dtypes": X_train.dtypes.to_dict()
     }
+
+
+def build_base_features(
+    sales: pd.DataFrame,
+    stores: pd.DataFrame,
+    horizon: int,
+    id_feature: str = "Store",
+    target_feature: str = "sales",
+    categorical_features = None
+) -> pd.DataFrame:
+    """Features stateless + lags/rolling. Usada no treino E na inferência.
+
+    Args:
+        sales (pd.DataFrame): DataFrame with the sales data.
+        stores (pd.DataFrame): DataFrame with the stores data.
+        horizon (int): Horizon size.
+        id_feature (str): Name of the id feature.
+        target_feature (str): Name of the target feature.
+        categorical_features (list): List of categorical features.
+
+    Returns:
+        pd.DataFrame: DataFrame with the preprocessed data.
+    """
+    df = merge_sales_and_store_data(
+        sales=sales.copy(),
+        store=stores.copy(),
+        id_feature=id_feature
+    )
+    df = preprocess_rossmann_data(df=df)
+
+    return preprocessing_for_xgb(
+        data=df,
+        horizon_size=horizon,
+        target_feature=target_feature,
+        categorical_features=categorical_features,
+    )
