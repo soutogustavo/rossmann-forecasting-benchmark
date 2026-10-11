@@ -24,11 +24,9 @@ from src.utils.evaluation import (
     smape,
 )
 from src.utils.preprocessing import (
+    build_base_features,
     build_schema,
-    merge_sales_and_store_data,
-    preprocess_rossmann_data,
     preprocess_rossmann_store_data,
-    preprocessing_for_xgb,
     same_weekday_lags,
     split_input_data,
 )
@@ -337,7 +335,7 @@ def run(cfg: PipelineConfig) -> GateResult:
         sales, stores = load_data(cfg)
         validate_data(sales, stores, cfg)
 
-        sales_store = merge_sales_and_store_data(
+        '''sales_store = merge_sales_and_store_data(
             sales=sales,
             store=stores,
             id_feature="Store"
@@ -345,18 +343,25 @@ def run(cfg: PipelineConfig) -> GateResult:
         ptrain = preprocess_rossmann_data(df=sales_store)
         pstore = preprocess_rossmann_store_data(data=stores)
 
-        mlflow.log_params({
-            "n_rows": len(ptrain),
-            "n_stores": ptrain["store"].nunique(),
-            "data_start": str(ptrain["date"].min().date())
-        })
-
         prep_data = preprocessing_for_xgb(
             data=ptrain,
             horizon_size=cfg.horizon_days,
             target_feature=TARGET_NAME,
             categorical_features=CAT_FEATURES
+        )'''
+
+        prep_data = build_base_features(
+            sales=sales, stores=stores, horizon=cfg.horizon_days,
+            target_feature=TARGET_NAME,
+            categorical_features=CAT_FEATURES
         )
+        pstore = preprocess_rossmann_store_data(data=stores)
+
+        mlflow.log_params({
+            "n_rows": len(prep_data),
+            "n_stores": prep_data["store"].nunique(),
+            "data_start": str(prep_data["date"].min().date())
+        })
 
         train, es, holdout = split_input_data(
             data=prep_data,
@@ -364,7 +369,7 @@ def run(cfg: PipelineConfig) -> GateResult:
             horizon=cfg.horizon_days
         )
         train_es = pd.concat([train, es], axis=0)
-        whole = pd.concat([train, train_es, holdout], axis=0)
+        whole = pd.concat([train_es, holdout], axis=0)
 
         processed = clustering_split_datasets(
             train=train.copy(),
@@ -403,7 +408,6 @@ def run(cfg: PipelineConfig) -> GateResult:
 
         register_and_promote(
             model=final_model,
-            feature_builder=preprocess_rossmann_data,
             artifacts = {
                 "schema": schema_final,
                 "cluster_map": processed["cluster_map"],
