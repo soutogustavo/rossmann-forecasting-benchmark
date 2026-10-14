@@ -7,5 +7,6 @@ notebooks/
 scripts/
 mlruns/
 infra/
+src/utils/research.py
 **/__pycache__
 *.ipynb

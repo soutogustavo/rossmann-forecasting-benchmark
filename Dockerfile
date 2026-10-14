@@ -15,7 +15,7 @@ RUN uv sync --frozen --no-default-groups --no-install-project
 COPY src/ ./src/
 COPY config/ ./config/
 
-RUN useradd --create-home appuser /&& chown -R appuser /app
+RUN useradd --create-home appuser && chown -R appuser /app
 USER appuser
 
 ENTRYPOINT [ "python", "-m" ]
