@@ -48,7 +48,7 @@ MODEL_PARAMS = {
     "subsample": 0.8,
     "colsample_bytree": 0.8,
     "random_state": 42,
-    "n_jobs": 1,
+    "n_jobs": -1,
     "objective": "reg:tweedie",
     "tweedie_variance_power": 1.5,
     "tree_method": "hist",
