@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from prophet import Prophet
 from sklearn.cluster import KMeans
 
 from src.utils.evaluation import RossmannEvaluation, smape
@@ -12,48 +11,6 @@ from src.utils.preprocessing import (
     preprocess_store_profile_data,
     set_cluster_feature,
 )
-
-
-def calculate_store_factors(
-    model: Prophet,
-    train_data: pd.DataFrame,
-    window_size: int = 60
-):
-    """Calculate store factors for the Rossmann dataset.
-
-    Args:
-        model (Prophet): The Prophet model.
-        train_data (pd.DataFrame): Training data.
-        window_size (int, optional): Window size for the rolling statistics. Defaults to 60.
-
-    Returns:
-        dict: Dictionary with store factors.
-    """
-
-    stores = train_data["store"].unique()
-
-    store_factors = {}
-    for sid in stores:
-
-        store_data = train_data[train_data["store"] == sid].copy()
-        store_data = store_data.sort_values("date").tail(window_size).reset_index(drop=True)
-        store_data.rename(columns={"date":"ds", "sales": "y"}, inplace=True)
-        store_data['cap'] = float(store_data['y'].max() * 1.5)
-        store_data['floor'] = 0.0
-
-        factor_data = store_data.head(window_size // 2)
-
-        features = ["ds", "cap", "floor"] + list(model.extra_regressors.keys())
-        factor_forecast = model.predict(factor_data[features])
-
-        store_factor = (
-            factor_data["y"].values /
-            factor_forecast["yhat"].values
-        ).mean()
-
-        store_factors[int(sid)] = float(abs(store_factor))
-
-    return store_factors
 
 
 def cluster_rossmann_stores(
