@@ -1,0 +1,12 @@
+.git
+.venv
+.env
+.aws.env
+data/
+notebooks/
+scripts/
+mlruns/
+infra/
+src/utils/research.py
+**/__pycache__
+*.ipynb
