@@ -7,16 +7,16 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     PATH="/app/.venv/bin:$PATH"
 
+RUN useradd --create-home appuser
 WORKDIR /app
 
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-default-groups --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-default-groups --no-install-project
 
 COPY src/ ./src/
 COPY config/ ./config/
 
-RUN useradd --create-home appuser && chown -R appuser /app
 USER appuser
-
 ENTRYPOINT [ "python", "-m" ]
 CMD ["src.pipeline.weekly_pipeline", "--env", "dev"]
