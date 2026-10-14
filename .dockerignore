@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.aws.env
+data/
+notebooks/
+scripts/
+mlruns/
+infra/
+**/__pycache__
+*.ipynb
