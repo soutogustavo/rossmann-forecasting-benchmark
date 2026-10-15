@@ -51,6 +51,12 @@ data "aws_iam_policy_document" "task" {
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = ["arn:aws:s3:::${data.tfe_outputs.platform.nonsensitive_values.artifact_bucket_name}/*"]
   }
+  statement {
+    sid       = "SimClock"
+    actions   = ["ssm:GetParameter", "ssm:PutParameter"]
+    resources = [aws_ssm_parameter.sim_clock.arn]
+  }
+
 }
 
 resource "aws_iam_role_policy" "task" {

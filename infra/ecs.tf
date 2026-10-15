@@ -34,6 +34,8 @@ resource "aws_ecs_task_definition" "pipeline" {
     environment = [
       { name = "MLFLOW_TRACKING_URI", value = data.tfe_outputs.platform.nonsensitive_values.mlflow_tracking_uri },
       { name = "AWS_DEFAULT_REGION", value = "eu-central-1" },
+      { name = "SIM_CLOCK_PARAM", value = aws_ssm_parameter.sim_clock.name },
+      { name = "SIM_END_DATE", value = "2015-05-31" },
     ]
     logConfiguration = {
       logDriver = "awslogs"
