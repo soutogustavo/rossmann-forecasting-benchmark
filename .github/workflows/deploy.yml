@@ -1,0 +1,147 @@
+
+name: build-and-deploy
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "config/**"
+      - "infra/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/deploy.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "config/**"
+      - "infra/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: # redeploy manual da main (Actions > build-and-deploy > Run workflow)
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  IMAGE_NAME: rossmann-pipeline
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive infra
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build da imagem (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE_NAME }}:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (image's up and imports resolved)
+        run: docker run --rm ${{ env.IMAGE_NAME }}:ci src.pipeline.weekly_pipeline --help
+
+  deploy:
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ENV_NAME: dev
+      TF_WORKSPACE: rossmann-sales-forecasting-dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image tag = commit short SHA
+        id: tag
+        run: echo "tag=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login into ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Does the tag already exist in ECR?
+        id: exists
+        env:
+          REPO: gs-${{ env.ENV_NAME }}-rossmann-pipeline
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if aws ecr describe-images --repository-name "$REPO" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Image $TAG already exists in ECR (immutable tags): build and push ignored"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.exists.outputs.skip == 'false'
+
+      - name: Build and push
+        if: steps.exists.outputs.skip == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/gs-${{ env.ENV_NAME }}-rossmann-pipeline:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform init
+        run: terraform -chdir=infra init -input=false
+
+      - name: Terraform apply
+        run: >
+          terraform -chdir=infra apply -auto-approve -input=false
+          -var="image_tag=${{ steps.tag.outputs.tag }}"
+
+      - name: Verify task definition
+        env:
+          FAMILY: gs-${{ env.ENV_NAME }}-rossmann-pipeline
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          IMAGE=$(aws ecs describe-task-definition --task-definition "$FAMILY" \
+            --query 'taskDefinition.containerDefinitions[0].image' --output text)
+          echo "Task definition points to: $IMAGE"
+          [[ "$IMAGE" == *":$TAG" ]] || { echo "::error::Expected :$TAG"; exit 1; }
+          {
+            echo "### Deploy to ${ENV_NAME} completed"
+            echo "- Image: \`$IMAGE\`"
+            echo "- Commit: ${GITHUB_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
