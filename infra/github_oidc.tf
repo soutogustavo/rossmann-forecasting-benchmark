@@ -72,6 +72,36 @@ resource "aws_iam_role_policy" "github_ci" {
   policy = data.aws_iam_policy_document.github_ci.json
 }
 
+resource "aws_iam_role_policy_attachment" "github_ci_power_user" {
+  role       = aws_iam_role.github_ci.name
+  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
+}
+
+data "aws_iam_policy_document" "github_ci_iam" {
+  statement {
+    sid     = "ManageProjectRoles"
+    actions = ["iam:*"]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/gs-${local.environment}-rossmann-*",
+    ]
+  }
+
+  statement {
+    sid = "ReadOidcProvider"
+    actions = [
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_ci_iam" {
+  name   = "terraform-iam"
+  role   = aws_iam_role.github_ci.id
+  policy = data.aws_iam_policy_document.github_ci_iam.json
+}
+
 output "github_ci_role_arn" {
   value = aws_iam_role.github_ci.arn
 }
