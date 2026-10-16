@@ -100,22 +100,22 @@ If the gate rejects the candidate, the run still produces a forecast with the cu
 
 ### Results
 
-Realized error of a 60-day forecast made at cutoff 2015-01-30, evaluated against actual sales:
+Two numbers, measuring two different things:
 
-| Metric | Value |
-|---|---|
-| sMAPE (open days) | 10.2% |
-| WAPE | 9.9% |
-| Bias | +2.0% (slight under-forecast) |
+| Measure | What it is | sMAPE (open days) |
+|---|---|---|
+| **Holdout backtest** | Step 2 of every retrain: the 60 days just *before* the cutoff | 8.6% to 8.8% across cutoffs |
+| **Realized forecast** | The 60 days *after* the cutoff, compared with actual sales once they happened (cutoff 2015-01-30) | 10.2% |
 
-The error stays flat across the 60-day horizon. A residual analysis by week, weekday, day of month, store and segment found the following:
+The backtest is what the quality gate uses. The realized error is what a business user would experience. A gap between the two is expected: the future window contains events the holdout did not, such as Carnival. Reporting only the backtest would overstate the model.
+
+For the realized forecast, WAPE is 9.9% and the bias is +2.0% (a slight under-forecast). The error stays flat across the 60-day horizon. A residual analysis by week, weekday, day of month, store and segment found the following:
 
 - **Carnival** (week of 16 Feb 2015) is over-forecast.
 - **Month-end** days are under-forecast. The raw data confirms that days 29 to 5 sell 10 to 20% above average.
 - **The promo effect is exaggerated**: Wednesdays and Thursdays are over-forecast in promo weeks and under-forecast in non-promo weeks.
 - **Larger stores are more under-forecast** than smaller ones (weighted bias 2.0% vs simple mean 1.5%).
 - **Blind spot**: stores that grew recently are systematically under-forecast (r = 0.29, with a monotonic increase of bias across growth quintiles).
-
 These findings drive the modeling backlog below.
 
 ### Earlier phases
