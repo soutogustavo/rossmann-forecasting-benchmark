@@ -57,42 +57,55 @@ class ModelSanityError(Exception):
     """Modelo treinou, mas produz saídas implausíveis."""
 
 
+def skill_score(model_smape: float, naive_smape: float) -> float:
+    """The extent to which the model outperforms the naive approach
+        within the same window (1 = perfect, 0 = equal to the naive approach).
+
+    Args:
+        model_smape (float): sMAPE of the model.
+        naive_smape (float): sMAPE of the naive model.
+
+    Returns:
+        float: Skill score.
+    """
+    return 1 - model_smape / naive_smape
+
+
 def quality_gate(
-    candidate_smape: float, naive_smape: float,
-    champion_smape: float | None, cfg: PipelineConfig
+    holdout_smape: float,
+    naive_smape: float,
+    champion_skill: float | None,
+    cfg: PipelineConfig
 ) -> GateResult:
     """Apply quality gates to the candidate model.
 
     Args:
-        candidate_smape (float): sMAPE of the candidate model.
+        holdout_smape (float): sMAPE of the candidate model.
         naive_smape (float): sMAPE of the naive model.
-        champion_smape (float | None): sMAPE of the champion model.
+        champion_skill (float | None): Skill of the champion model.
         cfg (PipelineConfig): Configuration for the pipeline.
 
     Returns:
         GateResult: Result of the quality gates.
     """
 
-    reasons: list[str] = []
+    skill = skill_score(holdout_smape, naive_smape)
+    reasons = []
 
-    # (a) Same window, fair comparison: the model needs
-    #     to be worth it compared to the naive one.
-    if candidate_smape > naive_smape * (1 - cfg.min_improvement_vs_naive):
+
+    if skill < cfg.min_skill:
         reasons.append(
-            f"Candidate sMAPE {candidate_smape:.4f} is not {cfg.min_improvement_vs_naive:.0%} "
-            f"better than seasonal naive {naive_smape:.4f}"
+            f"Skill {skill:.3f} below minimum {cfg.min_skill:.2f} vs naive on the same window"
         )
 
-    # (b) Different windows (champion backtest was in a
-    #     different period): that's why
-    #     it's a degradation tolerance, not a strict comparison.
-    if champion_smape is not None and candidate_smape > champion_smape * (1 + cfg.max_degradation_vs_champion):
+    if champion_skill is None:
+        logger.warning("Champion has no holdout_skill metric: skipping champion comparison")
+    elif skill < champion_skill - cfg.max_skill_drop:
         reasons.append(
-            f"Candidate sMAPE {candidate_smape:.4f} degraded more than "
-            f"{cfg.max_degradation_vs_champion:.0%} vs champion backtest {champion_smape:.4f}"
+            f"Skill {skill:.3f} more than {cfg.max_skill_drop:.2f} below champion skill {champion_skill:.3f}"
         )
 
-    return GateResult(passed=not reasons, reasons=reasons)
+    return GateResult(passed=not reasons, reasons=reasons, skill=skill)
 
 
 def seasonal_naive_forecast(
@@ -151,6 +164,25 @@ def sanity_check_refit(
             f"(tolerance ±{tolerance:.0%})"
         )
     logger.info("Refit sanity check passed (mean ratio %.3f)", ratio)
+
+
+def get_champion_skill(model_name: str) -> float | None:
+    """
+    Get the holdout skill metric recorded when the current champion was trained.
+
+    Args:
+        model_name (str): Name of the model.
+
+    Returns:
+        float | None: Skill value.
+    """
+    client = MlflowClient()
+    try:
+        version = client.get_model_version_by_alias(model_name, "champion")
+    except MlflowException:
+        return None
+
+    return client.get_run(version.run_id).data.metrics.get("holdout_skill")
 
 
 def get_champion_backtest_smape(model_name: str) -> float | None:

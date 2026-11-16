@@ -17,10 +17,11 @@ from src.config import PipelineConfig, load_config
 from src.utils.data import load_data
 from src.utils.evaluation import (
     GateResult,
-    get_champion_backtest_smape,
+    get_champion_skill,
     quality_gate,
     sanity_check_refit,
     seasonal_naive_forecast,
+    skill_score,
     smape,
 )
 from src.utils.preprocessing import (
@@ -148,12 +149,12 @@ def find_best_n(processed: dict) -> tuple[int, float]:
     preds = backtest_model.predict(X_es[FEATURES])
     preds = np.where(X_es["open"] == 0, 0, preds)
     candidate_smape = smape(y_true=y_es, y_pred=preds)
-    logger.info("sMAPE (candidate) = %s", f"{candidate_smape:.4f}")
+    logger.info("sMAPE (early stopping) = %s", f"{candidate_smape:.4f}")
 
     return best_n, candidate_smape
 
 
-def evaluate_on_holdout(processed: dict, best_n: int) -> float:
+def evaluate_on_holdout(processed: dict, best_n: int) -> tuple[float, float]:
     """Evaluate candidate and naive models on the holdout set.
 
     Args:
@@ -162,8 +163,7 @@ def evaluate_on_holdout(processed: dict, best_n: int) -> float:
         best_n (int): The best number of iterations for the model.
 
     Returns:
-        tuple[float, float]: The sMAPE in the holdout set for the
-        candidate and naive models.
+        tuple[float, float]: (holdout_smape, naive_smape), both on open days.
     """
     X_train = processed["train_es"][FEATURES]
     y_train = processed["train_es"][TARGET_NAME]
@@ -186,7 +186,7 @@ def evaluate_on_holdout(processed: dict, best_n: int) -> float:
     preds = gate_model.predict(X_val[FEATURES])
     preds = np.where(X_val["open"] == 0, 0, preds)
     gate_smape = smape(y_true=y_val, y_pred=preds)
-    logger.info("sMAPE (gate) = %f", gate_smape)
+    logger.info("sMAPE (holdout) = %f", gate_smape)
 
     naive_preds = seasonal_naive_forecast(
         history=processed["train_es"],
@@ -196,7 +196,7 @@ def evaluate_on_holdout(processed: dict, best_n: int) -> float:
     naive_smape = smape(y_true=y_val, y_pred=naive_preds)
     logger.info("sMAPE (naive) = %s", f"{naive_smape:.4f}")
 
-    return naive_smape
+    return gate_smape, naive_smape
 
 
 def train_final_model(
@@ -251,57 +251,69 @@ def train_final_model(
 
 
 def check_champion_backtest(
-    candidate_smape: float,
+    es_smape: float,
+    holdout_smape: float,
     naive_smape: float,
-    cfg: PipelineConfig
-) -> float:
-    """Check candidate vs champion and naive backtest and
-    log the results.
+    cfg: PipelineConfig,
+) -> float | None:
+    """Log the candidate's backtest metrics and return the champion's skill.
 
     Args:
-        candidate_smape (float): sMAPE of the candidate model.
-        naive_smape (float): sMAPE of the naive model.
-        cfg (PipelineConfig): Configuration for the pipeline.
+        es_smape: sMAPE of the candidate on the early-stopping block (diagnostic only).
+        holdout_smape: sMAPE of the candidate on the holdout.
+        naive_smape: sMAPE of the seasonal naive on the same holdout.
+        cfg: Pipeline configuration.
 
     Returns:
-        float: sMAPE of the champion model.
+        The champion's holdout skill, or None if there is no champion
+        or it was registered before skill was logged.
     """
-    champion_smape = get_champion_backtest_smape(cfg.model_name)
-    metrics = {
-        "backtest_smape": candidate_smape,
-        "naive_smape": naive_smape
-    }
-    if champion_smape is not None:
-        metrics["champion_backtest_smape"] = champion_smape
-    mlflow.log_metrics(metrics)
-    logger.info("Backtest sMAPE: candidate=%.4f naive=%.4f champion=%s",
-                candidate_smape, naive_smape,
-                f"{champion_smape:.4f}" if champion_smape else "n/a")
+    skill = skill_score(holdout_smape, naive_smape)
+    champion_skill = get_champion_skill(cfg.model_name)
 
-    return champion_smape
+    metrics = {
+        "es_smape": es_smape,
+        "holdout_smape": holdout_smape,
+        "naive_smape": naive_smape,
+        "holdout_skill": skill,
+    }
+    if champion_skill is not None:
+        metrics["champion_skill"] = champion_skill
+    mlflow.log_metrics(metrics)
+
+    logger.info(
+        "Holdout: candidate sMAPE=%.4f naive=%.4f skill=%.3f champion skill=%s",
+        holdout_smape,
+        naive_smape,
+        skill,
+        f"{champion_skill:.3f}" if champion_skill is not None else "n/a",
+    )
+    return champion_skill
 
 
 def check_quality_results(
-    candidate_smape: float,
+    holdout_smape: float,
     naive_smape: float,
-    champion_smape: float | None,
-    cfg: PipelineConfig
-) -> bool:
-    """Check quality gates and decide if the model should be promoted.
+    champion_skill: float | None,
+    cfg: PipelineConfig,
+) -> GateResult:
+    """Run the quality gate, tag the MLflow run and log a rejection.
 
     Args:
-        candidate_smape (float): sMAPE of the candidate model.
-        naive_smape (float): sMAPE of the naive model.
-        champion_smape (float | None): sMAPE of the champion model.
+        holdout_smape (float): sMAPE of the candidate on the holdout.
+        naive_smape (float): sMAPE of the seasonal naive on the same holdout.
+        champion_skill (float | None): holdout skill of the current champion,
+            or None if there is none to compare against.
         cfg (PipelineConfig): Configuration for the pipeline.
 
     Returns:
-        GateResult: Result of the quality gates.
+        GateResult: Whether the candidate passed, the reasons if not,
+        and the candidate's skill.
     """
-    gate = quality_gate(candidate_smape, naive_smape, champion_smape, cfg)
+    gate = quality_gate(holdout_smape, naive_smape, champion_skill, cfg)
     mlflow.set_tags({
         "gate_passed": str(gate.passed),
-        "gate_reasons": " | ".join(gate.reasons) or "none"
+        "gate_reasons": " | ".join(gate.reasons) or "none",
     })
     if not gate.passed:
         logger.warning(
@@ -335,21 +347,6 @@ def run(cfg: PipelineConfig) -> GateResult:
         sales, stores = load_data(cfg)
         validate_data(sales, stores, cfg)
 
-        '''sales_store = merge_sales_and_store_data(
-            sales=sales,
-            store=stores,
-            id_feature="Store"
-        )
-        ptrain = preprocess_rossmann_data(df=sales_store)
-        pstore = preprocess_rossmann_store_data(data=stores)
-
-        prep_data = preprocessing_for_xgb(
-            data=ptrain,
-            horizon_size=cfg.horizon_days,
-            target_feature=TARGET_NAME,
-            categorical_features=CAT_FEATURES
-        )'''
-
         prep_data = build_base_features(
             sales=sales, stores=stores, horizon=cfg.horizon_days,
             target_feature=TARGET_NAME,
@@ -380,24 +377,25 @@ def run(cfg: PipelineConfig) -> GateResult:
             pstore=pstore.copy()
         )
 
-        best_n, candidate_smape = find_best_n(processed)
+        best_n, es_smape = find_best_n(processed)
 
-        naive_smape = evaluate_on_holdout(
+        holdout_smape, naive_smape = evaluate_on_holdout(
             processed=processed,
             best_n=best_n
         )
 
-        champion_smape = check_champion_backtest(
-            candidate_smape=candidate_smape,
+        champion_skill = check_champion_backtest(
+            es_smape=es_smape,
+            holdout_smape=holdout_smape,
             naive_smape=naive_smape,
-            cfg=cfg
+            cfg=cfg,
         )
 
         gate = check_quality_results(
-            candidate_smape=candidate_smape,
+            holdout_smape=holdout_smape,
             naive_smape=naive_smape,
-            champion_smape=champion_smape,
-            cfg=cfg
+            champion_skill=champion_skill,
+            cfg=cfg,
         )
 
         final_model, schema_final, X_train_final = train_final_model(
@@ -425,6 +423,7 @@ def run(cfg: PipelineConfig) -> GateResult:
         )
 
         return gate
+
 
 def main(argv: list[str] | None = None) -> int:
     """Main entrypoint for retraining pipeline execution."""

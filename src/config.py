@@ -19,8 +19,8 @@ class PipelineConfig:
     data_uri: str
     auto_promote: bool
     horizon_days: int = 60
-    min_improvement_vs_naive: float = 0.10
-    max_degradation_vs_champion: float = 0.05
+    min_skill: float = 0.10
+    max_skill_drop: float = 0.05
     dry_run: bool = False
 
 
