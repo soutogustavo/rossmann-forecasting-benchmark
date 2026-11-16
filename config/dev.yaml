@@ -2,3 +2,5 @@ experiment_name: rossmann/retraining-sales-forecasting_dev
 model_name: rossmann-sales-forecasting-dev
 data_uri: s3://gs-dev-rossmann-sales-forecasting
 auto_promote: false
+min_skill: 0.10
+max_skill_drop: 0.05

@@ -1,7 +1,7 @@
 """Validation utils for retraining pipeline"""
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -33,10 +33,11 @@ class DataValidationError(Exception):
     """Data validation error"""
 
 
-@dataclass
+@dataclass(frozen=True)
 class GateResult:
     passed: bool
-    reasons: list[str] = field(default_factory=list)
+    reasons: list[str]
+    skill: float
 
 
 def validate_data(
